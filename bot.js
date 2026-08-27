@@ -1,7 +1,15 @@
+const express = require("express");
 const admin = require("firebase-admin");
 
-// Firebase credentials zitawekwa Render Environment Variables baadaye.
-// HATUTAWEKA serviceAccountKey.json kwenye GitHub.
+const app = express();
+const PORT = process.env.PORT || 10000;
+
+// Firebase
+if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+  console.error("FIREBASE_SERVICE_ACCOUNT haijawekwa!");
+  process.exit(1);
+}
+
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
@@ -13,52 +21,62 @@ const db = admin.firestore();
 const REQUESTS_COLLECTION = "audio_requests";
 const MEDIA_COLLECTION = "media";
 
-// Angalia kama content tayari ipo Firebase
-async function contentExists(contentId, title) {
-  let snapshot;
+// Render Web Service inahitaji port
+app.get("/", (req, res) => {
+  res.json({
+    status: "online",
+    bot: "MAKYAMA BOT V2"
+  });
+});
 
+// Angalia kama content ipo tayari Firebase
+async function contentExists(contentId, title) {
   if (contentId) {
-    snapshot = await db
+    const result = await db
       .collection(MEDIA_COLLECTION)
       .where("contentId", "==", contentId)
       .limit(1)
       .get();
 
-    if (!snapshot.empty) return true;
+    if (!result.empty) {
+      return true;
+    }
   }
 
   if (title) {
-    snapshot = await db
+    const result = await db
       .collection(MEDIA_COLLECTION)
       .where("title", "==", title)
       .limit(1)
       .get();
 
-    if (!snapshot.empty) return true;
+    if (!result.empty) {
+      return true;
+    }
   }
 
   return false;
 }
 
-// Chakata requests
+// Shughulikia requests
 async function processRequests() {
-  const snapshot = await db
-    .collection(REQUESTS_COLLECTION)
-    .where("status", "==", "pending")
-    .limit(5)
-    .get();
+  try {
+    const snapshot = await db
+      .collection(REQUESTS_COLLECTION)
+      .where("status", "==", "pending")
+      .limit(5)
+      .get();
 
-  if (snapshot.empty) {
-    console.log("Hakuna request mpya.");
-    return;
-  }
+    if (snapshot.empty) {
+      console.log("Hakuna request mpya.");
+      return;
+    }
 
-  for (const doc of snapshot.docs) {
-    const request = doc.data();
+    for (const doc of snapshot.docs) {
+      const request = doc.data();
 
-    console.log("Request:", request.title);
+      console.log("Request:", request.title);
 
-    try {
       const exists = await contentExists(
         request.contentId,
         request.title
@@ -70,7 +88,7 @@ async function processRequests() {
           checkedAt: admin.firestore.FieldValue.serverTimestamp()
         });
 
-        console.log("Content tayari ipo Firebase:", request.title);
+        console.log("Tayari ipo Firebase:", request.title);
         continue;
       }
 
@@ -79,24 +97,20 @@ async function processRequests() {
         startedAt: admin.firestore.FieldValue.serverTimestamp()
       });
 
-      console.log("Content haipo. Itaendelea kushughulikiwa:", request.title);
-
-      // Download + Catbox + Firebase tutaongeza STEP inayofuata.
-
-    } catch (error) {
-      console.error("Request error:", error);
-
-      await doc.ref.update({
-        status: "failed",
-        error: error.message,
-        failedAt: admin.firestore.FieldValue.serverTimestamp()
-      });
+      console.log("Content haipo:", request.title);
+      console.log("Download/Catbox itaongezwa hatua inayofuata.");
     }
+
+  } catch (error) {
+    console.error("Firebase error:", error);
   }
 }
 
-// Endesha kila sekunde 10
-setInterval(processRequests, 10000);
+// Web server
+app.listen(PORT, () => {
+  console.log(`MAKYAMA BOT V2 online kwenye port ${PORT}`);
+  processRequests();
+});
 
-console.log("MAKYAMA BOT V2 imeanza...");
-processRequests();
+// Kagua Firebase kila sekunde 10
+setInterval(processRequests, 10000);
