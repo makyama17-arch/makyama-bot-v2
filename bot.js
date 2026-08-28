@@ -37,24 +37,43 @@ admin.initializeApp({
 
 const db = admin.database();
 
+
+// ======================================================
+// RSS PARSER
+// ======================================================
+
 const parser = new Parser({
   timeout: 30000,
+
   headers: {
-    "User-Agent": "MAKYAMA-Opportunities-Bot/1.0"
+    "User-Agent":
+      "Mozilla/5.0 (compatible; MAKYAMA-Bot/3.1)"
+  },
+
+  customFields: {
+    item: [
+      ["deadline", "deadline"],
+      ["closingDate", "closingDate"],
+      ["dueDate", "dueDate"],
+      ["applicationDeadline", "applicationDeadline"]
+    ]
   }
 });
+
 
 // ======================================================
 // SETTINGS
 // ======================================================
 
-const OPPORTUNITIES_PATH = "opportunities";
+const OPPORTUNITIES_PATH =
+  "opportunities";
 
-// Kila dakika 30
-const BOT_INTERVAL = 30 * 60 * 1000;
+const BOT_INTERVAL =
+  30 * 60 * 1000;
+
 
 // ======================================================
-// VERIFIED RSS SOURCES
+// SOURCES
 // ======================================================
 
 const RSS_SOURCES = [
@@ -67,9 +86,11 @@ const RSS_SOURCES = [
     name: "Grants.gov",
     category: "Grant",
     country: "United States / International",
+
     url:
       "https://www.grants.gov/rss/GG_OppModByCategory.xml"
   },
+
 
   // ------------------------------------------
   // NIH
@@ -79,9 +100,11 @@ const RSS_SOURCES = [
     name: "NIH Funding",
     category: "Grant",
     country: "United States / International",
+
     url:
       "https://grants.nih.gov/grants/guide/newsfeed/fundingopps.xml"
   },
+
 
   // ------------------------------------------
   // NSF FUNDING
@@ -91,9 +114,11 @@ const RSS_SOURCES = [
     name: "NSF Funding",
     category: "Grant",
     country: "United States / International",
+
     url:
       "https://www.nsf.gov/rss/rss_www_funding_pgm_annc_inf.xml"
   },
+
 
   // ------------------------------------------
   // NSF UPCOMING DEADLINES
@@ -103,25 +128,16 @@ const RSS_SOURCES = [
     name: "NSF Upcoming Deadlines",
     category: "Grant",
     country: "United States / International",
+
     url:
       "https://www.nsf.gov/rss/rss_www_funding_upcoming.xml"
-  },
-
-  // ------------------------------------------
-  // GLOBAL REMOTE JOBS
-  // ------------------------------------------
-
-  {
-    name: "Career Nest",
-    category: "Remote Job",
-    country: "Worldwide",
-    url:
-      "https://careernest.cloud/api/feed.xml?limit=100"
   }
+
 ];
 
+
 // ======================================================
-// TEXT CLEANER
+// CLEAN TEXT
 // ======================================================
 
 function cleanText(value) {
@@ -131,16 +147,50 @@ function cleanText(value) {
   }
 
   return String(value)
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/\s+/g, " ")
+
+    .replace(
+      /<script[\s\S]*?<\/script>/gi,
+      " "
+    )
+
+    .replace(
+      /<style[\s\S]*?<\/style>/gi,
+      " "
+    )
+
+    .replace(
+      /<[^>]*>/g,
+      " "
+    )
+
+    .replace(
+      /&nbsp;/gi,
+      " "
+    )
+
+    .replace(
+      /&amp;/gi,
+      "&"
+    )
+
+    .replace(
+      /&quot;/gi,
+      '"'
+    )
+
+    .replace(
+      /&#39;/gi,
+      "'"
+    )
+
+    .replace(
+      /\s+/g,
+      " "
+    )
+
     .trim();
 }
+
 
 // ======================================================
 // VALID URL
@@ -154,7 +204,8 @@ function validUrl(value) {
 
   try {
 
-    const url = new URL(value);
+    const url =
+      new URL(value);
 
     return (
       url.protocol === "http:" ||
@@ -167,25 +218,39 @@ function validUrl(value) {
   }
 }
 
+
 // ======================================================
-// CREATE DATABASE ID
+// DATABASE ID
 // ======================================================
 
-function createId(title, url) {
+function createId(
+  title,
+  url
+) {
 
-  const raw =
-    `${title}-${url}`
-      .toLowerCase();
-
-  return raw
-    .replace(/https?:\/\//g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .substring(0, 180);
+  return `${title}-${url}`
+    .toLowerCase()
+    .replace(
+      /https?:\/\//g,
+      ""
+    )
+    .replace(
+      /[^a-z0-9]+/g,
+      "-"
+    )
+    .replace(
+      /^-+|-+$/g,
+      ""
+    )
+    .substring(
+      0,
+      180
+    );
 }
 
+
 // ======================================================
-// DATE PARSER
+// DATE
 // ======================================================
 
 function parseDate(value) {
@@ -194,26 +259,29 @@ function parseDate(value) {
     return null;
   }
 
-  const date = new Date(value);
+  const date =
+    new Date(value);
 
-  if (isNaN(date.getTime())) {
+  if (
+    isNaN(
+      date.getTime()
+    )
+  ) {
+
     return null;
   }
 
   return date.toISOString();
 }
 
+
 // ======================================================
-// DEADLINE EXTRACTOR
+// DEADLINE
 // ======================================================
-//
-// RSS nyingine hazina field ya deadline.
-// Tunajaribu kuitafuta kwenye text.
-//
 
 function extractDeadline(item) {
 
-  const values = [
+  const fields = [
 
     item.deadline,
 
@@ -221,105 +289,94 @@ function extractDeadline(item) {
 
     item.applicationDeadline,
 
-    item.closeDate,
-
     item.closingDate,
 
-    item.dueDate,
+    item.closeDate,
 
-    item.content,
+    item.dueDate
 
-    item.contentSnippet,
-
-    item.summary,
-
-    item.description
   ];
 
-  for (const value of values) {
 
-    if (!value) {
+  for (
+    const field of fields
+  ) {
+
+    if (!field) {
       continue;
     }
 
-    const text =
-      cleanText(value);
+    const date =
+      parseDate(field);
 
-    // YYYY-MM-DD
-    let match =
-      text.match(
-        /\b(20\d{2})[-\/](0?[1-9]|1[0-2])[-\/](0?[1-9]|[12]\d|3[01])\b/
-      );
-
-    if (match) {
-
-      const date =
-        new Date(
-          `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}T23:59:59Z`
-        );
-
-      if (!isNaN(date.getTime())) {
-        return date.toISOString();
-      }
-    }
-
-    // Month DD, YYYY
-    match =
-      text.match(
-        /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+([0-3]?\d),?\s+(20\d{2})\b/i
-      );
-
-    if (match) {
-
-      const date =
-        new Date(
-          `${match[1]} ${match[2]}, ${match[3]} 23:59:59 UTC`
-        );
-
-      if (!isNaN(date.getTime())) {
-        return date.toISOString();
-      }
-    }
-
-    // DD Month YYYY
-    match =
-      text.match(
-        /\b([0-3]?\d)\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})\b/i
-      );
-
-    if (match) {
-
-      const date =
-        new Date(
-          `${match[2]} ${match[1]}, ${match[3]} 23:59:59 UTC`
-        );
-
-      if (!isNaN(date.getTime())) {
-        return date.toISOString();
-      }
+    if (date) {
+      return date;
     }
   }
+
+
+  const text =
+    cleanText(
+
+      item.contentSnippet ||
+      item.content ||
+      item.description ||
+      item.summary ||
+      ""
+
+    );
+
+
+  // YYYY-MM-DD
+
+  let match =
+    text.match(
+      /\b(20\d{2})[-\/](0?[1-9]|1[0-2])[-\/](0?[1-9]|[12]\d|3[01])\b/
+    );
+
+
+  if (match) {
+
+    const date =
+      new Date(
+        `${match[1]}-${String(match[2]).padStart(2, "0")}-${String(match[3]).padStart(2, "0")}T23:59:59Z`
+      );
+
+    if (
+      !isNaN(
+        date.getTime()
+      )
+    ) {
+
+      return date.toISOString();
+    }
+  }
+
 
   return null;
 }
 
+
 // ======================================================
-// GET DESCRIPTION
+// DESCRIPTION
 // ======================================================
 
 function getDescription(item) {
 
   return cleanText(
+
     item.contentSnippet ||
     item.summary ||
     item.description ||
     item.content ||
     ""
+
   );
 }
 
+
 // ======================================================
-// DETECT CATEGORY
+// CATEGORY
 // ======================================================
 
 function detectCategory(
@@ -332,25 +389,27 @@ function detectCategory(
     `${title} ${description}`
       .toLowerCase();
 
+
   if (
-    text.includes("scholarship") ||
-    text.includes("studentship")
+    text.includes("scholarship")
   ) {
     return "Scholarship";
   }
 
-  if (
-    text.includes("internship") ||
-    text.includes("intern ")
-  ) {
-    return "Internship";
-  }
 
   if (
     text.includes("fellowship")
   ) {
     return "Fellowship";
   }
+
+
+  if (
+    text.includes("internship")
+  ) {
+    return "Internship";
+  }
+
 
   if (
     text.includes("grant") ||
@@ -359,6 +418,7 @@ function detectCategory(
     return "Grant";
   }
 
+
   if (
     text.includes("competition") ||
     text.includes("contest")
@@ -366,14 +426,6 @@ function detectCategory(
     return "Competition";
   }
 
-  if (
-    text.includes("job") ||
-    text.includes("career") ||
-    text.includes("developer") ||
-    text.includes("engineer")
-  ) {
-    return "Job";
-  }
 
   if (
     text.includes("hackathon")
@@ -381,11 +433,24 @@ function detectCategory(
     return "Hackathon";
   }
 
-  return sourceCategory || "Opportunity";
+
+  if (
+    text.includes("job") ||
+    text.includes("career")
+  ) {
+    return "Job";
+  }
+
+
+  return (
+    sourceCategory ||
+    "Opportunity"
+  );
 }
 
+
 // ======================================================
-// DETECT FUNDING
+// FUNDING
 // ======================================================
 
 function detectFunding(
@@ -397,35 +462,45 @@ function detectFunding(
     `${title} ${description}`
       .toLowerCase();
 
+
   if (
     text.includes("fully funded")
   ) {
+
     return "Fully Funded";
   }
+
 
   if (
     text.includes("funded")
   ) {
+
     return "Funded";
   }
+
 
   if (
     text.includes("stipend")
   ) {
+
     return "Stipend";
   }
+
 
   if (
     text.includes("grant")
   ) {
+
     return "Grant";
   }
+
 
   return "";
 }
 
+
 // ======================================================
-// SAVE OPPORTUNITY
+// SAVE
 // ======================================================
 
 async function saveOpportunity(
@@ -434,16 +509,21 @@ async function saveOpportunity(
 ) {
 
   const title =
-    cleanText(item.title);
+    cleanText(
+      item.title
+    );
+
 
   const url =
     item.link ||
     item.guid ||
     "";
 
+
   if (!title) {
     return;
   }
+
 
   if (!validUrl(url)) {
 
@@ -455,47 +535,39 @@ async function saveOpportunity(
     return;
   }
 
+
   const id =
     createId(
       title,
       url
     );
 
+
   const ref =
     db.ref(
       `${OPPORTUNITIES_PATH}/${id}`
     );
 
+
   const existing =
-    await ref.once("value");
+    await ref.once(
+      "value"
+    );
 
-  // ------------------------------------------
-  // DUPLICATE
-  // ------------------------------------------
 
-  if (existing.exists()) {
+  if (
+    existing.exists()
+  ) {
 
     return;
   }
 
+
   const description =
-    getDescription(item);
-
-  const deadline =
-    extractDeadline(item);
-
-  const category =
-    detectCategory(
-      title,
-      description,
-      source.category
+    getDescription(
+      item
     );
 
-  const funding =
-    detectFunding(
-      title,
-      description
-    );
 
   const data = {
 
@@ -503,15 +575,26 @@ async function saveOpportunity(
 
     description,
 
-    category,
+    category:
+      detectCategory(
+        title,
+        description,
+        source.category
+      ),
 
     country:
-      source.country ||
-      "Worldwide",
+      source.country,
 
-    funding,
+    funding:
+      detectFunding(
+        title,
+        description
+      ),
 
-    deadline,
+    deadline:
+      extractDeadline(
+        item
+      ),
 
     officialUrl:
       url,
@@ -532,7 +615,11 @@ async function saveOpportunity(
       "active"
   };
 
-  await ref.set(data);
+
+  await ref.set(
+    data
+  );
+
 
   console.log("");
   console.log(
@@ -546,7 +633,7 @@ async function saveOpportunity(
 
   console.log(
     "Category:",
-    category
+    data.category
   );
 
   console.log(
@@ -555,11 +642,12 @@ async function saveOpportunity(
   );
 }
 
+
 // ======================================================
-// FETCH RSS SOURCE
+// FETCH SOURCE
 // ======================================================
 
-async function fetchRSSSource(
+async function fetchSource(
   source
 ) {
 
@@ -569,6 +657,7 @@ async function fetchRSSSource(
     source.name
   );
 
+
   try {
 
     const feed =
@@ -576,22 +665,36 @@ async function fetchRSSSource(
         source.url
       );
 
+
     const items =
       feed.items || [];
 
+
     console.log(
-      `📦 ${items.length} items`
+      `📦 Found ${items.length} items`
     );
+
 
     for (
       const item of items
     ) {
 
-      await saveOpportunity(
-        item,
-        source
-      );
+      try {
+
+        await saveOpportunity(
+          item,
+          source
+        );
+
+      } catch (error) {
+
+        console.error(
+          "⚠️ Item error:",
+          error.message
+        );
+      }
     }
+
 
   } catch (error) {
 
@@ -605,103 +708,127 @@ async function fetchRSSSource(
   }
 }
 
+
 // ======================================================
 // DELETE EXPIRED
 // ======================================================
 
-async function deleteExpiredOpportunities() {
+async function deleteExpired() {
 
   console.log("");
   console.log(
     "🧹 Cleaning expired opportunities..."
   );
 
+
   const snapshot =
     await db
-      .ref(OPPORTUNITIES_PATH)
-      .once("value");
+      .ref(
+        OPPORTUNITIES_PATH
+      )
+      .once(
+        "value"
+      );
 
-  if (!snapshot.exists()) {
+
+  if (
+    !snapshot.exists()
+  ) {
 
     console.log(
-      "ℹ️ Nothing to clean."
+      "ℹ️ No opportunities."
     );
 
     return;
   }
 
+
   const now =
     Date.now();
 
-  const deletions = [];
+
+  let deleted =
+    0;
+
+
+  const tasks = [];
+
 
   snapshot.forEach(
-    (child) => {
+    child => {
 
       const data =
         child.val() || {};
 
-      if (!data.deadline) {
+
+      if (
+        !data.deadline
+      ) {
         return;
       }
+
 
       const deadline =
         new Date(
           data.deadline
         ).getTime();
 
+
       if (
         !isNaN(deadline) &&
         deadline < now
       ) {
 
-        deletions.push({
-          id: child.key,
-          title: data.title
-        });
+        tasks.push(
+
+          db
+            .ref(
+              `${OPPORTUNITIES_PATH}/${child.key}`
+            )
+            .remove()
+
+            .then(() => {
+
+              console.log(
+                "🗑️ Deleted:",
+                data.title
+              );
+
+              deleted++;
+
+            })
+
+        );
       }
+
     }
   );
 
-  for (
-    const item of deletions
-  ) {
 
-    await db
-      .ref(
-        `${OPPORTUNITIES_PATH}/${item.id}`
-      )
-      .remove();
+  await Promise.all(
+    tasks
+  );
 
-    console.log(
-      "🗑️ Deleted:",
-      item.title
-    );
-  }
 
   console.log(
-    `🧹 Removed ${deletions.length} expired opportunities.`
+    `🧹 Removed ${deleted} expired opportunities.`
   );
 }
 
-// ======================================================
-// CLEAN OLD DATA WITHOUT DEADLINE
-// ======================================================
-//
-// Hatuifuti opportunities zisizo na deadline.
-// Zinaweza kuwa jobs ambazo zinaendelea.
-// Hivyo tunaziweka.
-//
 
 // ======================================================
-// RUN BOT
+// BOT
 // ======================================================
 
-let botRunning = false;
+let botRunning =
+  false;
+
 
 async function runBot() {
 
-  if (botRunning) {
+  if (
+    botRunning
+  ) {
 
     console.log(
       "⏳ Bot bado ina-run..."
@@ -710,7 +837,10 @@ async function runBot() {
     return;
   }
 
-  botRunning = true;
+
+  botRunning =
+    true;
+
 
   console.log("");
   console.log(
@@ -730,31 +860,29 @@ async function runBot() {
     new Date().toISOString()
   );
 
+
   try {
 
-    // ----------------------------------------
-    // 1. DELETE EXPIRED
-    // ----------------------------------------
+    // CLEAN
+    await deleteExpired();
 
-    await deleteExpiredOpportunities();
 
-    // ----------------------------------------
-    // 2. FETCH RSS SOURCES
-    // ----------------------------------------
-
+    // SOURCES
     for (
       const source of RSS_SOURCES
     ) {
 
-      await fetchRSSSource(
+      await fetchSource(
         source
       );
     }
+
 
     console.log("");
     console.log(
       "✅ BOT FINISHED"
     );
+
 
   } catch (error) {
 
@@ -763,33 +891,48 @@ async function runBot() {
       error
     );
 
+
   } finally {
 
-    botRunning = false;
+    botRunning =
+      false;
   }
 }
 
+
 // ======================================================
-// API — GET ALL OPPORTUNITIES
+// GET OPPORTUNITIES
 // ======================================================
 
 app.get(
   "/opportunities",
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
 
     try {
 
       const snapshot =
         await db
-          .ref(OPPORTUNITIES_PATH)
-          .once("value");
+          .ref(
+            OPPORTUNITIES_PATH
+          )
+          .once(
+            "value"
+          );
 
-      const opportunities = [];
 
-      if (snapshot.exists()) {
+      const opportunities =
+        [];
+
+
+      if (
+        snapshot.exists()
+      ) {
 
         snapshot.forEach(
-          (child) => {
+          child => {
 
             opportunities.push({
 
@@ -799,20 +942,23 @@ app.get(
               ...child.val()
 
             });
+
           }
         );
       }
 
-      // Newest first
+
       opportunities.sort(
         (a, b) =>
           (b.addedAt || 0) -
           (a.addedAt || 0)
       );
 
+
       res.json({
 
-        success: true,
+        success:
+          true,
 
         count:
           opportunities.length,
@@ -821,16 +967,20 @@ app.get(
 
       });
 
+
     } catch (error) {
 
       console.error(
-        "❌ GET opportunities error:",
         error
       );
 
-      res.status(500).json({
 
-        success: false,
+      res.status(
+        500
+      ).json({
+
+        success:
+          false,
 
         message:
           error.message
@@ -840,13 +990,17 @@ app.get(
   }
 );
 
+
 // ======================================================
-// API — GET ONE
+// GET ONE
 // ======================================================
 
 app.get(
   "/opportunities/:id",
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
 
     try {
 
@@ -855,13 +1009,21 @@ app.get(
           .ref(
             `${OPPORTUNITIES_PATH}/${req.params.id}`
           )
-          .once("value");
+          .once(
+            "value"
+          );
 
-      if (!snapshot.exists()) {
 
-        return res.status(404).json({
+      if (
+        !snapshot.exists()
+      ) {
 
-          success: false,
+        return res.status(
+          404
+        ).json({
+
+          success:
+            false,
 
           message:
             "Opportunity haipo."
@@ -869,9 +1031,11 @@ app.get(
         });
       }
 
+
       res.json({
 
-        success: true,
+        success:
+          true,
 
         id:
           req.params.id,
@@ -881,16 +1045,15 @@ app.get(
 
       });
 
+
     } catch (error) {
 
-      console.error(
-        "❌ GET ONE error:",
-        error
-      );
+      res.status(
+        500
+      ).json({
 
-      res.status(500).json({
-
-        success: false,
+        success:
+          false,
 
         message:
           error.message
@@ -900,40 +1063,32 @@ app.get(
   }
 );
 
+
 // ======================================================
-// API — MANUAL BOT RUN
+// MANUAL RUN
 // ======================================================
 
 app.post(
   "/bot/run",
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
 
-    try {
+    runBot();
 
-      await runBot();
+    res.json({
 
-      res.json({
+      success:
+        true,
 
-        success: true,
+      message:
+        "Bot imeanzishwa."
 
-        message:
-          "Bot ime-run."
-
-      });
-
-    } catch (error) {
-
-      res.status(500).json({
-
-        success: false,
-
-        message:
-          error.message
-
-      });
-    }
+    });
   }
 );
+
 
 // ======================================================
 // HEALTH
@@ -941,14 +1096,22 @@ app.post(
 
 app.get(
   "/health",
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
 
     try {
 
       await db
-        .ref(OPPORTUNITIES_PATH)
+        .ref(
+          OPPORTUNITIES_PATH
+        )
         .limitToFirst(1)
-        .once("value");
+        .once(
+          "value"
+        );
+
 
       res.json({
 
@@ -968,9 +1131,12 @@ app.get(
 
       });
 
+
     } catch (error) {
 
-      res.status(500).json({
+      res.status(
+        500
+      ).json({
 
         status:
           "error",
@@ -986,13 +1152,17 @@ app.get(
   }
 );
 
+
 // ======================================================
 // HOME
 // ======================================================
 
 app.get(
   "/",
-  (req, res) => {
+  (
+    req,
+    res
+  ) => {
 
     res.json({
 
@@ -1003,13 +1173,10 @@ app.get(
         "MAKYAMA GLOBAL OPPORTUNITY BOT",
 
       version:
-        "3.0",
+        "3.1",
 
       database:
         "Firebase Realtime Database",
-
-      opportunitiesPath:
-        OPPORTUNITIES_PATH,
 
       sources:
         RSS_SOURCES.length,
@@ -1021,8 +1188,9 @@ app.get(
   }
 );
 
+
 // ======================================================
-// START SERVER
+// SERVER
 // ======================================================
 
 app.listen(
@@ -1053,12 +1221,6 @@ app.listen(
     );
 
     console.log(
-      "Database:",
-      process.env.FIREBASE_DATABASE_URL ||
-      "Firebase default database"
-    );
-
-    console.log(
       "Interval:",
       "30 minutes"
     );
@@ -1067,13 +1229,16 @@ app.listen(
       "=========================================="
     );
 
+
     // Run immediately
     runBot();
 
-    // Run every 30 minutes
+
+    // Every 30 minutes
     setInterval(
       runBot,
       BOT_INTERVAL
     );
+
   }
 );
