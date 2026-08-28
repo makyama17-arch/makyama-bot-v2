@@ -5,7 +5,7 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 // ==========================================
-// FIREBASE REALTIME DATABASE
+// FIREBASE
 // ==========================================
 
 if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
@@ -19,13 +19,11 @@ try {
   serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 } catch (error) {
   console.error("❌ FIREBASE_SERVICE_ACCOUNT si JSON sahihi!");
-  console.error(error);
   process.exit(1);
 }
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-
   databaseURL:
     process.env.FIREBASE_DATABASE_URL ||
     "https://makyama-e5e89-default-rtdb.firebaseio.com/"
@@ -58,19 +56,123 @@ app.get("/health", async (req, res) => {
 
     res.json({
       status: "ok",
-      firebase: "connected",
-      database: "Realtime Database"
+      firebase: "connected"
     });
-
   } catch (error) {
-
     console.error("❌ Health error:", error);
 
     res.status(500).json({
       status: "error",
-      firebase: "connection_failed",
       message: error.message
     });
+  }
+});
+
+// ==========================================
+// DOWNLOAD PROXY
+// ==========================================
+// Hii inafanya direct audio URL ipitie Render.
+// Inatumika kwa audio ambazo una ruhusa ya kuzisambaza.
+// ==========================================
+
+app.get("/download", async (req, res) => {
+  try {
+    const url = String(req.query.url || "").trim();
+
+    if (!url) {
+      return res.status(400).send("Audio URL haipo.");
+    }
+
+    // Ruhusu HTTPS pekee
+    let parsed;
+
+    try {
+      parsed = new URL(url);
+    } catch {
+      return res.status(400).send("Audio URL si sahihi.");
+    }
+
+    if (parsed.protocol !== "https:") {
+      return res.status(400).send("HTTPS URL pekee inaruhusiwa.");
+    }
+
+    console.log("⬇️ Download request:", url);
+
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      return res.status(response.status).send(
+        "Faili la audio halijapatikana."
+      );
+    }
+
+    const contentType =
+      response.headers.get("content-type") ||
+      "application/octet-stream";
+
+    const contentLength =
+      response.headers.get("content-length");
+
+    const fileName =
+      decodeURIComponent(
+        parsed.pathname.split("/").pop() || "Makyama_Audio.mp3"
+      ).replace(/[^a-zA-Z0-9._-]/g, "_");
+
+    res.setHeader("Content-Type", contentType);
+
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${fileName}"`
+    );
+
+    res.setHeader(
+      "Cache-Control",
+      "no-store"
+    );
+
+    if (contentLength) {
+      res.setHeader("Content-Length", contentLength);
+    }
+
+    // Stream moja kwa moja kwa mteja
+    if (response.body) {
+      const reader = response.body.getReader();
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) break;
+
+          res.write(Buffer.from(value));
+        }
+
+        res.end();
+
+      } catch (streamError) {
+        console.error("❌ Download stream error:", streamError);
+
+        if (!res.headersSent) {
+          res.status(500).send("Download imeshindikana.");
+        } else {
+          res.end();
+        }
+      }
+
+    } else {
+      const buffer = Buffer.from(
+        await response.arrayBuffer()
+      );
+
+      res.end(buffer);
+    }
+
+  } catch (error) {
+    console.error("❌ Download error:", error);
+
+    if (!res.headersSent) {
+      res.status(500).send("Download imeshindikana.");
+    }
   }
 });
 
@@ -79,7 +181,6 @@ app.get("/health", async (req, res) => {
 // ==========================================
 
 async function contentExists(contentId, title) {
-
   const snapshot = await db.ref(MEDIA_PATH).once("value");
 
   if (!snapshot.exists()) {
@@ -89,7 +190,6 @@ async function contentExists(contentId, title) {
   let found = false;
 
   snapshot.forEach((child) => {
-
     const data = child.val() || {};
 
     const savedContentId =
@@ -113,7 +213,6 @@ async function contentExists(contentId, title) {
     ) {
       found = true;
     }
-
   });
 
   return found;
@@ -124,9 +223,7 @@ async function contentExists(contentId, title) {
 // ==========================================
 
 async function deleteRequest(requestId) {
-
   try {
-
     await db
       .ref(`${REQUESTS_PATH}/${requestId}`)
       .remove();
@@ -137,15 +234,29 @@ async function deleteRequest(requestId) {
     );
 
   } catch (error) {
-
     console.error(
       "❌ Imeshindikana kufuta request:",
       requestId,
       error
     );
-
   }
+}
 
+// ==========================================
+// ADD MEDIA
+// ==========================================
+
+async function addMedia(data) {
+  const ref = await db
+    .ref(MEDIA_PATH)
+    .push(data);
+
+  console.log(
+    "🎵 Media imeongezwa Firebase:",
+    ref.key
+  );
+
+  return ref.key;
 }
 
 // ==========================================
@@ -187,7 +298,7 @@ async function processOneRequest(requestId, request) {
     console.log("⏳ Status: processing");
 
     // --------------------------------------
-    // CHECK IF ALREADY EXISTS
+    // CHECK EXISTING
     // --------------------------------------
 
     const exists =
@@ -200,59 +311,117 @@ async function processOneRequest(requestId, request) {
         title
       );
 
-      // Request ikishafanyiwa kazi -> FUTA
       await deleteRequest(requestId);
 
       return;
     }
 
     // --------------------------------------
-    // HAPA NDIPO DOWNLOAD/SOURCE YA AUDIO
-    // ITAUNGANISHWA
+    // DIRECT AUDIO URL
+    // --------------------------------------
+    // Request inaweza kuwa na linkAudio ikiwa
+    // wewe/admin umeweka direct audio link halali.
     // --------------------------------------
 
+    const audioUrl =
+      request.linkAudio ||
+      request.audioUrl ||
+      request.downloadUrl ||
+      "";
+
+    const cover =
+      request.cover ||
+      request.picha ||
+      "";
+
+    const artist =
+      request.artist ||
+      "MAKYAMA";
+
+    if (!audioUrl) {
+
+      await db
+        .ref(`${REQUESTS_PATH}/${requestId}`)
+        .update({
+          status: "waiting_source",
+          message:
+            "Direct audio URL haijawekwa. Weka linkAudio/audioUrl yenye ruhusa.",
+          updatedAt: Date.now()
+        });
+
+      console.log(
+        "⚠️ Hakuna direct audio URL:",
+        title
+      );
+
+      return;
+    }
+
+    // --------------------------------------
+    // CHECK URL
+    // --------------------------------------
+
+    let parsed;
+
+    try {
+      parsed = new URL(audioUrl);
+    } catch {
+
+      await db
+        .ref(`${REQUESTS_PATH}/${requestId}`)
+        .update({
+          status: "error",
+          error: "Audio URL si sahihi.",
+          updatedAt: Date.now()
+        });
+
+      return;
+    }
+
+    if (parsed.protocol !== "https:") {
+
+      await db
+        .ref(`${REQUESTS_PATH}/${requestId}`)
+        .update({
+          status: "error",
+          error: "Audio URL lazima iwe HTTPS.",
+          updatedAt: Date.now()
+        });
+
+      return;
+    }
+
+    // --------------------------------------
+    // SAVE LINK ONLY
+    // --------------------------------------
+
+    const mediaData = {
+      jina: title,
+      artist: artist,
+      picha: cover,
+      linkAudio: audioUrl,
+      contentId: contentId,
+      views: 0,
+      createdAt: Date.now()
+    };
+
+    await addMedia(mediaData);
+
     console.log(
-      "🔎 Content haipo:",
+      "✅ Audio link imehifadhiwa:",
+      audioUrl
+    );
+
+    // --------------------------------------
+    // REQUEST IMEKAMILIKA -> FUTA
+    // --------------------------------------
+
+    await deleteRequest(requestId);
+
+    console.log(
+      "🎉 REQUEST IMEKAMILIKA:",
       title
     );
-
-    console.log(
-      "⚠️ Hakuna audio inayohifadhiwa Firebase."
-    );
-
-    console.log(
-      "🔗 Firebase itahifadhi LINK pekee."
-    );
-
-    /*
-      HAPA TUTAWEKA MFUMO WA KUTAFUTA AUDIO
-      NA KUPATA DIRECT LINK.
-
-      Mfano wa data utakayoweka kwenye media:
-
-      {
-        jina: "Mario Dunia",
-        artist: "Artist",
-        picha: "https://....jpg",
-        linkAudio: "https://....mp3",
-        contentId: "...",
-        createdAt: Date.now()
-      }
-
-      Firebase haitahifadhi file la audio.
-    */
-
-    // --------------------------------------
-    // KWA SASA REQUEST IMEFANYIWA PROCESS
-    // --------------------------------------
-
-    console.log(
-      "⚠️ Request imefika BOT lakini source ya audio bado haijaunganishwa."
-    );
-
-    // Kwa sababu hatuna audio/link bado,
-    // tunaacha processing ili isiweze kufutwa
-    // kabla ya kupata link.
 
   } catch (error) {
 
@@ -270,9 +439,7 @@ async function processOneRequest(requestId, request) {
         error: error.message,
         updatedAt: Date.now()
       });
-
   }
-
 }
 
 // ==========================================
@@ -312,9 +479,7 @@ async function processRequests() {
           id: child.key,
           data: request
         });
-
       }
-
     });
 
     if (requests.length === 0) {
@@ -330,14 +495,12 @@ async function processRequests() {
       `📦 Requests pending: ${requests.length}`
     );
 
-    // Process moja baada ya nyingine
     for (const item of requests) {
 
       await processOneRequest(
         item.id,
         item.data
       );
-
     }
 
   } catch (error) {
@@ -347,9 +510,7 @@ async function processRequests() {
     );
 
     console.error(error);
-
   }
-
 }
 
 // ==========================================
@@ -376,9 +537,7 @@ app.listen(PORT, () => {
 
   console.log("");
 
-  // Run immediately
   processRequests();
-
 });
 
 // ==========================================
@@ -386,7 +545,5 @@ app.listen(PORT, () => {
 // ==========================================
 
 setInterval(() => {
-
   processRequests();
-
 }, 10000);
