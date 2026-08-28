@@ -1,18 +1,15 @@
 const express = require("express");
 const admin = require("firebase-admin");
+const Parser = require("rss-parser");
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// ==========================================
-// MIDDLEWARE
-// ==========================================
-
 app.use(express.json({ limit: "1mb" }));
 
-// ==========================================
+// ======================================================
 // FIREBASE
-// ==========================================
+// ======================================================
 
 if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
   console.error("❌ FIREBASE_SERVICE_ACCOUNT haijawekwa kwenye Render!");
@@ -26,9 +23,7 @@ try {
     process.env.FIREBASE_SERVICE_ACCOUNT
   );
 } catch (error) {
-  console.error(
-    "❌ FIREBASE_SERVICE_ACCOUNT si JSON sahihi!"
-  );
+  console.error("❌ FIREBASE_SERVICE_ACCOUNT si JSON sahihi!");
   process.exit(1);
 }
 
@@ -42,954 +37,777 @@ admin.initializeApp({
 
 const db = admin.database();
 
-const REQUESTS_PATH = "requests";
-const MEDIA_PATH = "media";
+const parser = new Parser({
+  timeout: 30000,
+  headers: {
+    "User-Agent": "MAKYAMA-Opportunities-Bot/1.0"
+  }
+});
 
-// ==========================================
-// ALLOWED URL CHECK
-// ==========================================
+// ======================================================
+// SETTINGS
+// ======================================================
 
-function validateAudioUrl(audioUrl) {
+const OPPORTUNITIES_PATH = "opportunities";
 
-  if (!audioUrl) {
-    return {
-      valid: false,
-      reason: "AUDIO_URL_MISSING"
-    };
+// Kila dakika 30
+const BOT_INTERVAL = 30 * 60 * 1000;
+
+// ======================================================
+// VERIFIED RSS SOURCES
+// ======================================================
+
+const RSS_SOURCES = [
+
+  // ------------------------------------------
+  // GRANTS.GOV
+  // ------------------------------------------
+
+  {
+    name: "Grants.gov",
+    category: "Grant",
+    country: "United States / International",
+    url:
+      "https://www.grants.gov/rss/GG_OppModByCategory.xml"
+  },
+
+  // ------------------------------------------
+  // NIH
+  // ------------------------------------------
+
+  {
+    name: "NIH Funding",
+    category: "Grant",
+    country: "United States / International",
+    url:
+      "https://grants.nih.gov/grants/guide/newsfeed/fundingopps.xml"
+  },
+
+  // ------------------------------------------
+  // NSF FUNDING
+  // ------------------------------------------
+
+  {
+    name: "NSF Funding",
+    category: "Grant",
+    country: "United States / International",
+    url:
+      "https://www.nsf.gov/rss/rss_www_funding_pgm_annc_inf.xml"
+  },
+
+  // ------------------------------------------
+  // NSF UPCOMING DEADLINES
+  // ------------------------------------------
+
+  {
+    name: "NSF Upcoming Deadlines",
+    category: "Grant",
+    country: "United States / International",
+    url:
+      "https://www.nsf.gov/rss/rss_www_funding_upcoming.xml"
+  },
+
+  // ------------------------------------------
+  // GLOBAL REMOTE JOBS
+  // ------------------------------------------
+
+  {
+    name: "Career Nest",
+    category: "Remote Job",
+    country: "Worldwide",
+    url:
+      "https://careernest.cloud/api/feed.xml?limit=100"
+  }
+];
+
+// ======================================================
+// TEXT CLEANER
+// ======================================================
+
+function cleanText(value) {
+
+  if (!value) {
+    return "";
   }
 
-  if (typeof audioUrl !== "string") {
-    return {
-      valid: false,
-      reason: "AUDIO_URL_MUST_BE_STRING"
-    };
-  }
-
-  audioUrl = audioUrl.trim();
-
-  if (!audioUrl) {
-    return {
-      valid: false,
-      reason: "AUDIO_URL_EMPTY"
-    };
-  }
-
-  let parsedUrl;
-
-  try {
-    parsedUrl = new URL(audioUrl);
-  } catch (error) {
-    return {
-      valid: false,
-      reason: "INVALID_AUDIO_URL"
-    };
-  }
-
-  // HTTP/HTTPS pekee
-  if (
-    parsedUrl.protocol !== "http:" &&
-    parsedUrl.protocol !== "https:"
-  ) {
-    return {
-      valid: false,
-      reason: "ONLY_HTTP_HTTPS_ALLOWED"
-    };
-  }
-
-  // Zuia localhost
-  const hostname =
-    parsedUrl.hostname.toLowerCase();
-
-  if (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "::1"
-  ) {
-    return {
-      valid: false,
-      reason: "LOCALHOST_NOT_ALLOWED"
-    };
-  }
-
-  // Zuia private IP ranges za kawaida
-  const privateIpPatterns = [
-    /^10\./,
-    /^192\.168\./,
-    /^172\.(1[6-9]|2[0-9]|3[0-1])\./
-  ];
-
-  for (const pattern of privateIpPatterns) {
-    if (pattern.test(hostname)) {
-      return {
-        valid: false,
-        reason: "PRIVATE_IP_NOT_ALLOWED"
-      };
-    }
-  }
-
-  return {
-    valid: true,
-    url: parsedUrl.toString()
-  };
+  return String(value)
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-// ==========================================
-// HOME
-// ==========================================
+// ======================================================
+// VALID URL
+// ======================================================
 
-app.get("/", (req, res) => {
+function validUrl(value) {
 
-  res.json({
-    status: "online",
-    bot: "MAKYAMA BOT V2",
-    database: "Firebase Realtime Database",
-    version: "2.1"
-  });
-});
-
-// ==========================================
-// HEALTH
-// ==========================================
-
-app.get("/health", async (req, res) => {
-
-  try {
-
-    await db
-      .ref(REQUESTS_PATH)
-      .limitToFirst(1)
-      .once("value");
-
-    res.json({
-      status: "ok",
-      firebase: "connected"
-    });
-
-  } catch (error) {
-
-    console.error(
-      "❌ Health error:",
-      error
-    );
-
-    res.status(500).json({
-      status: "error",
-      firebase: "error",
-      message: error.message
-    });
-  }
-});
-
-// ==========================================
-// GET ONE REQUEST
-// ==========================================
-
-app.get(
-  "/request/:requestId",
-  async (req, res) => {
-
-    try {
-
-      const requestId =
-        req.params.requestId;
-
-      const snapshot =
-        await db
-          .ref(
-            `${REQUESTS_PATH}/${requestId}`
-          )
-          .once("value");
-
-      if (!snapshot.exists()) {
-
-        return res.status(404).json({
-          success: false,
-          message: "Request haipo."
-        });
-      }
-
-      res.json({
-        success: true,
-        requestId,
-        data: snapshot.val()
-      });
-
-    } catch (error) {
-
-      console.error(
-        "❌ Request error:",
-        error
-      );
-
-      res.status(500).json({
-        success: false,
-        message: error.message
-      });
-    }
-  }
-);
-
-// ==========================================
-// ADD AUDIO SOURCE TO REQUEST
-// ==========================================
-
-app.post(
-  "/source/:requestId",
-  async (req, res) => {
-
-    try {
-
-      const requestId =
-        req.params.requestId;
-
-      const audioUrl =
-        req.body.linkAudio ||
-        req.body.audioUrl ||
-        req.body.downloadUrl ||
-        "";
-
-      const validation =
-        validateAudioUrl(audioUrl);
-
-      if (!validation.valid) {
-
-        return res.status(400).json({
-          success: false,
-          message:
-            "Audio URL haikubaliki.",
-          reason:
-            validation.reason
-        });
-      }
-
-      const requestRef =
-        db.ref(
-          `${REQUESTS_PATH}/${requestId}`
-        );
-
-      const snapshot =
-        await requestRef.once("value");
-
-      if (!snapshot.exists()) {
-
-        return res.status(404).json({
-          success: false,
-          message: "Request haipo."
-        });
-      }
-
-      const request =
-        snapshot.val() || {};
-
-      await requestRef.update({
-
-        linkAudio:
-          validation.url,
-
-        audioUrl:
-          validation.url,
-
-        downloadUrl:
-          validation.url,
-
-        status: "pending",
-
-        message:
-          "Audio source imewekwa. Inasubiri processing.",
-
-        updatedAt:
-          Date.now()
-      });
-
-      console.log("");
-      console.log(
-        "🔗 AUDIO SOURCE IMEWEKWA"
-      );
-      console.log(
-        "Request:",
-        requestId
-      );
-      console.log(
-        "Title:",
-        request.title ||
-        request.jina ||
-        request.query ||
-        "Unknown"
-      );
-      console.log(
-        "URL:",
-        validation.url
-      );
-
-      res.json({
-
-        success: true,
-
-        message:
-          "Audio source imeongezwa.",
-
-        requestId,
-
-        audioUrl:
-          validation.url
-      });
-
-    } catch (error) {
-
-      console.error(
-        "❌ Source error:",
-        error
-      );
-
-      res.status(500).json({
-
-        success: false,
-
-        message:
-          error.message
-      });
-    }
-  }
-);
-
-// ==========================================
-// CHECK MEDIA
-// ==========================================
-
-async function contentExists(
-  contentId,
-  title
-) {
-
-  const snapshot =
-    await db
-      .ref(MEDIA_PATH)
-      .once("value");
-
-  if (!snapshot.exists()) {
+  if (!value) {
     return false;
   }
 
-  let found = false;
-
-  snapshot.forEach((child) => {
-
-    const data =
-      child.val() || {};
-
-    const savedId =
-      String(
-        data.contentId || ""
-      ).trim();
-
-    const savedTitle =
-      String(
-        data.title ||
-        data.jina ||
-        ""
-      )
-        .trim()
-        .toLowerCase();
-
-    if (
-      contentId &&
-      savedId ===
-        String(contentId).trim()
-    ) {
-      found = true;
-    }
-
-    if (
-      title &&
-      savedTitle ===
-        String(title)
-          .trim()
-          .toLowerCase()
-    ) {
-      found = true;
-    }
-  });
-
-  return found;
-}
-
-// ==========================================
-// DELETE REQUEST
-// ==========================================
-
-async function deleteRequest(
-  requestId
-) {
-
-  await db
-    .ref(
-      `${REQUESTS_PATH}/${requestId}`
-    )
-    .remove();
-
-  console.log(
-    "🗑️ Request imefutwa:",
-    requestId
-  );
-}
-
-// ==========================================
-// SAVE MEDIA
-// ==========================================
-
-async function saveMedia(
-  request
-) {
-
-  const title =
-    request.title ||
-    request.jina ||
-    request.query ||
-    "Untitled";
-
-  const artist =
-    request.artist ||
-    "MAKYAMA";
-
-  const cover =
-    request.cover ||
-    request.picha ||
-    "";
-
-  const contentId =
-    request.contentId ||
-    "";
-
-  const audioUrl =
-    request.linkAudio ||
-    request.audioUrl ||
-    request.downloadUrl ||
-    "";
-
-  // -------------------------------
-  // CHECK URL
-  // -------------------------------
-
-  const validation =
-    validateAudioUrl(audioUrl);
-
-  if (!validation.valid) {
-
-    return {
-      success: false,
-      reason: validation.reason
-    };
-  }
-
-  // -------------------------------
-  // MEDIA DATA
-  // -------------------------------
-
-  const mediaData = {
-
-    jina: title,
-
-    title: title,
-
-    artist: artist,
-
-    picha: cover,
-
-    cover: cover,
-
-    linkAudio:
-      validation.url,
-
-    audioUrl:
-      validation.url,
-
-    downloadUrl:
-      validation.url,
-
-    contentId:
-      contentId,
-
-    views: 0,
-
-    createdAt:
-      Date.now()
-  };
-
-  // -------------------------------
-  // SAVE
-  // -------------------------------
-
-  const newMedia =
-    await db
-      .ref(MEDIA_PATH)
-      .push(mediaData);
-
-  console.log("");
-  console.log(
-    "================================="
-  );
-  console.log(
-    "✅ MEDIA IMEHIFADHIWA"
-  );
-  console.log(
-    "================================="
-  );
-
-  console.log(
-    "🎵 Title:",
-    title
-  );
-
-  console.log(
-    "👤 Artist:",
-    artist
-  );
-
-  console.log(
-    "🔗 Audio URL:",
-    validation.url
-  );
-
-  console.log(
-    "🆔 Media ID:",
-    newMedia.key
-  );
-
-  return {
-
-    success: true,
-
-    mediaId:
-      newMedia.key
-  };
-}
-
-// ==========================================
-// PROCESS ONE REQUEST
-// ==========================================
-
-async function processOneRequest(
-  requestId,
-  request
-) {
-
-  const title =
-    request.title ||
-    request.jina ||
-    request.query ||
-    "";
-
-  const contentId =
-    request.contentId ||
-    "";
-
-  console.log("");
-  console.log(
-    "================================="
-  );
-
-  console.log(
-    "📥 REQUEST MPYA"
-  );
-
-  console.log(
-    "ID:",
-    requestId
-  );
-
-  console.log(
-    "QUERY:",
-    title
-  );
-
-  console.log(
-    "================================="
-  );
-
   try {
 
-    // --------------------------------------
-    // MARK PROCESSING
-    // --------------------------------------
+    const url = new URL(value);
 
-    await db
-      .ref(
-        `${REQUESTS_PATH}/${requestId}`
-      )
-      .update({
-
-        status:
-          "processing",
-
-        startedAt:
-          request.startedAt ||
-          Date.now(),
-
-        updatedAt:
-          Date.now()
-      });
-
-    console.log(
-      "⏳ Status: processing"
+    return (
+      url.protocol === "http:" ||
+      url.protocol === "https:"
     );
 
-    // --------------------------------------
-    // CHECK EXISTING MEDIA
-    // --------------------------------------
+  } catch {
 
-    const exists =
-      await contentExists(
-        contentId,
-        title
-      );
-
-    if (exists) {
-
-      console.log(
-        "ℹ️ Media tayari ipo:",
-        title
-      );
-
-      await deleteRequest(
-        requestId
-      );
-
-      return;
-    }
-
-    // --------------------------------------
-    // GET AUDIO URL
-    // --------------------------------------
-
-    const audioUrl =
-      request.linkAudio ||
-      request.audioUrl ||
-      request.downloadUrl ||
-      "";
-
-    // --------------------------------------
-    // SOURCE HAIPO
-    // --------------------------------------
-
-    if (!audioUrl) {
-
-      console.log(
-        "⚠️ Direct audio URL haijawekwa."
-      );
-
-      await db
-        .ref(
-          `${REQUESTS_PATH}/${requestId}`
-        )
-        .update({
-
-          status:
-            "waiting_source",
-
-          message:
-            "Weka direct audio URL yenye ruhusa kupitia /source/:requestId.",
-
-          updatedAt:
-            Date.now()
-        });
-
-      return;
-    }
-
-    // --------------------------------------
-    // VALIDATE AUDIO URL
-    // --------------------------------------
-
-    const validation =
-      validateAudioUrl(audioUrl);
-
-    if (!validation.valid) {
-
-      console.log(
-        "❌ Audio URL imekataliwa:",
-        validation.reason
-      );
-
-      await db
-        .ref(
-          `${REQUESTS_PATH}/${requestId}`
-        )
-        .update({
-
-          status:
-            "error",
-
-          message:
-            "Audio URL haikubaliki.",
-
-          reason:
-            validation.reason,
-
-          updatedAt:
-            Date.now()
-        });
-
-      return;
-    }
-
-    // --------------------------------------
-    // SAVE MEDIA
-    // --------------------------------------
-
-    const result =
-      await saveMedia(request);
-
-    if (!result.success) {
-
-      await db
-        .ref(
-          `${REQUESTS_PATH}/${requestId}`
-        )
-        .update({
-
-          status:
-            "error",
-
-          message:
-            result.reason,
-
-          updatedAt:
-            Date.now()
-        });
-
-      return;
-    }
-
-    // --------------------------------------
-    // COMPLETE
-    // --------------------------------------
-
-    await db
-      .ref(
-        `${REQUESTS_PATH}/${requestId}`
-      )
-      .update({
-
-        status:
-          "completed",
-
-        mediaId:
-          result.mediaId,
-
-        message:
-          "Media imehifadhiwa successfully.",
-
-        completedAt:
-          Date.now(),
-
-        updatedAt:
-          Date.now()
-      });
-
-    console.log("");
-    console.log(
-      "🎉 REQUEST IMEKAMILIKA"
-    );
-
-    console.log(
-      "🎵:",
-      title
-    );
-
-    console.log(
-      "🆔 Media:",
-      result.mediaId
-    );
-
-    // --------------------------------------
-    // DELETE AFTER SUCCESS
-    // --------------------------------------
-
-    await deleteRequest(
-      requestId
-    );
-
-  } catch (error) {
-
-    console.error("");
-    console.error(
-      "❌ ERROR PROCESSING REQUEST"
-    );
-
-    console.error(
-      "Request:",
-      requestId
-    );
-
-    console.error(error);
-
-    try {
-
-      await db
-        .ref(
-          `${REQUESTS_PATH}/${requestId}`
-        )
-        .update({
-
-          status:
-            "error",
-
-          error:
-            error.message,
-
-          updatedAt:
-            Date.now()
-        });
-
-    } catch (firebaseError) {
-
-      console.error(
-        "❌ Firebase update error:",
-        firebaseError
-      );
-    }
+    return false;
   }
 }
 
-// ==========================================
-// PROCESS ALL PENDING REQUESTS
-// ==========================================
+// ======================================================
+// CREATE DATABASE ID
+// ======================================================
 
-let processing = false;
+function createId(title, url) {
 
-async function processRequests() {
+  const raw =
+    `${title}-${url}`
+      .toLowerCase();
 
-  if (processing) {
+  return raw
+    .replace(/https?:\/\//g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .substring(0, 180);
+}
+
+// ======================================================
+// DATE PARSER
+// ======================================================
+
+function parseDate(value) {
+
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+
+  if (isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toISOString();
+}
+
+// ======================================================
+// DEADLINE EXTRACTOR
+// ======================================================
+//
+// RSS nyingine hazina field ya deadline.
+// Tunajaribu kuitafuta kwenye text.
+//
+
+function extractDeadline(item) {
+
+  const values = [
+
+    item.deadline,
+
+    item.deadlineDate,
+
+    item.applicationDeadline,
+
+    item.closeDate,
+
+    item.closingDate,
+
+    item.dueDate,
+
+    item.content,
+
+    item.contentSnippet,
+
+    item.summary,
+
+    item.description
+  ];
+
+  for (const value of values) {
+
+    if (!value) {
+      continue;
+    }
+
+    const text =
+      cleanText(value);
+
+    // YYYY-MM-DD
+    let match =
+      text.match(
+        /\b(20\d{2})[-\/](0?[1-9]|1[0-2])[-\/](0?[1-9]|[12]\d|3[01])\b/
+      );
+
+    if (match) {
+
+      const date =
+        new Date(
+          `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}T23:59:59Z`
+        );
+
+      if (!isNaN(date.getTime())) {
+        return date.toISOString();
+      }
+    }
+
+    // Month DD, YYYY
+    match =
+      text.match(
+        /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+([0-3]?\d),?\s+(20\d{2})\b/i
+      );
+
+    if (match) {
+
+      const date =
+        new Date(
+          `${match[1]} ${match[2]}, ${match[3]} 23:59:59 UTC`
+        );
+
+      if (!isNaN(date.getTime())) {
+        return date.toISOString();
+      }
+    }
+
+    // DD Month YYYY
+    match =
+      text.match(
+        /\b([0-3]?\d)\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})\b/i
+      );
+
+    if (match) {
+
+      const date =
+        new Date(
+          `${match[2]} ${match[1]}, ${match[3]} 23:59:59 UTC`
+        );
+
+      if (!isNaN(date.getTime())) {
+        return date.toISOString();
+      }
+    }
+  }
+
+  return null;
+}
+
+// ======================================================
+// GET DESCRIPTION
+// ======================================================
+
+function getDescription(item) {
+
+  return cleanText(
+    item.contentSnippet ||
+    item.summary ||
+    item.description ||
+    item.content ||
+    ""
+  );
+}
+
+// ======================================================
+// DETECT CATEGORY
+// ======================================================
+
+function detectCategory(
+  title,
+  description,
+  sourceCategory
+) {
+
+  const text =
+    `${title} ${description}`
+      .toLowerCase();
+
+  if (
+    text.includes("scholarship") ||
+    text.includes("studentship")
+  ) {
+    return "Scholarship";
+  }
+
+  if (
+    text.includes("internship") ||
+    text.includes("intern ")
+  ) {
+    return "Internship";
+  }
+
+  if (
+    text.includes("fellowship")
+  ) {
+    return "Fellowship";
+  }
+
+  if (
+    text.includes("grant") ||
+    text.includes("funding")
+  ) {
+    return "Grant";
+  }
+
+  if (
+    text.includes("competition") ||
+    text.includes("contest")
+  ) {
+    return "Competition";
+  }
+
+  if (
+    text.includes("job") ||
+    text.includes("career") ||
+    text.includes("developer") ||
+    text.includes("engineer")
+  ) {
+    return "Job";
+  }
+
+  if (
+    text.includes("hackathon")
+  ) {
+    return "Hackathon";
+  }
+
+  return sourceCategory || "Opportunity";
+}
+
+// ======================================================
+// DETECT FUNDING
+// ======================================================
+
+function detectFunding(
+  title,
+  description
+) {
+
+  const text =
+    `${title} ${description}`
+      .toLowerCase();
+
+  if (
+    text.includes("fully funded")
+  ) {
+    return "Fully Funded";
+  }
+
+  if (
+    text.includes("funded")
+  ) {
+    return "Funded";
+  }
+
+  if (
+    text.includes("stipend")
+  ) {
+    return "Stipend";
+  }
+
+  if (
+    text.includes("grant")
+  ) {
+    return "Grant";
+  }
+
+  return "";
+}
+
+// ======================================================
+// SAVE OPPORTUNITY
+// ======================================================
+
+async function saveOpportunity(
+  item,
+  source
+) {
+
+  const title =
+    cleanText(item.title);
+
+  const url =
+    item.link ||
+    item.guid ||
+    "";
+
+  if (!title) {
     return;
   }
 
-  processing = true;
+  if (!validUrl(url)) {
+
+    console.log(
+      "⚠️ Invalid URL:",
+      title
+    );
+
+    return;
+  }
+
+  const id =
+    createId(
+      title,
+      url
+    );
+
+  const ref =
+    db.ref(
+      `${OPPORTUNITIES_PATH}/${id}`
+    );
+
+  const existing =
+    await ref.once("value");
+
+  // ------------------------------------------
+  // DUPLICATE
+  // ------------------------------------------
+
+  if (existing.exists()) {
+
+    return;
+  }
+
+  const description =
+    getDescription(item);
+
+  const deadline =
+    extractDeadline(item);
+
+  const category =
+    detectCategory(
+      title,
+      description,
+      source.category
+    );
+
+  const funding =
+    detectFunding(
+      title,
+      description
+    );
+
+  const data = {
+
+    title,
+
+    description,
+
+    category,
+
+    country:
+      source.country ||
+      "Worldwide",
+
+    funding,
+
+    deadline,
+
+    officialUrl:
+      url,
+
+    source:
+      source.name,
+
+    publishedAt:
+      parseDate(
+        item.isoDate ||
+        item.pubDate
+      ),
+
+    addedAt:
+      Date.now(),
+
+    status:
+      "active"
+  };
+
+  await ref.set(data);
+
+  console.log("");
+  console.log(
+    "✅ NEW OPPORTUNITY"
+  );
+
+  console.log(
+    "Title:",
+    title
+  );
+
+  console.log(
+    "Category:",
+    category
+  );
+
+  console.log(
+    "Source:",
+    source.name
+  );
+}
+
+// ======================================================
+// FETCH RSS SOURCE
+// ======================================================
+
+async function fetchRSSSource(
+  source
+) {
+
+  console.log("");
+  console.log(
+    "📡 Checking:",
+    source.name
+  );
 
   try {
 
-    console.log(
-      "🔎 Checking MAKYAMA requests..."
-    );
-
-    const snapshot =
-      await db
-        .ref(REQUESTS_PATH)
-        .once("value");
-
-    if (!snapshot.exists()) {
-
-      console.log(
-        "ℹ️ Hakuna requests."
+    const feed =
+      await parser.parseURL(
+        source.url
       );
 
-      return;
-    }
-
-    const requests = [];
-
-    snapshot.forEach(
-      (child) => {
-
-        const data =
-          child.val() || {};
-
-        if (
-          data.status ===
-          "pending"
-        ) {
-
-          requests.push({
-
-            id:
-              child.key,
-
-            data:
-              data
-          });
-        }
-      }
-    );
-
-    if (
-      requests.length === 0
-    ) {
-
-      console.log(
-        "ℹ️ Hakuna pending requests."
-      );
-
-      return;
-    }
+    const items =
+      feed.items || [];
 
     console.log(
-      `📦 Pending requests: ${requests.length}`
+      `📦 ${items.length} items`
     );
-
-    // --------------------------------------
-    // PROCESS ONE BY ONE
-    // --------------------------------------
 
     for (
-      const item of requests
+      const item of items
     ) {
 
-      await processOneRequest(
-        item.id,
-        item.data
+      await saveOpportunity(
+        item,
+        source
       );
     }
 
   } catch (error) {
 
     console.error(
-      "❌ Firebase processing error:"
+      `❌ RSS ERROR: ${source.name}`
     );
 
-    console.error(error);
-
-  } finally {
-
-    processing = false;
+    console.error(
+      error.message
+    );
   }
 }
 
-// ==========================================
-// GET MEDIA LIST
-// ==========================================
+// ======================================================
+// DELETE EXPIRED
+// ======================================================
+
+async function deleteExpiredOpportunities() {
+
+  console.log("");
+  console.log(
+    "🧹 Cleaning expired opportunities..."
+  );
+
+  const snapshot =
+    await db
+      .ref(OPPORTUNITIES_PATH)
+      .once("value");
+
+  if (!snapshot.exists()) {
+
+    console.log(
+      "ℹ️ Nothing to clean."
+    );
+
+    return;
+  }
+
+  const now =
+    Date.now();
+
+  const deletions = [];
+
+  snapshot.forEach(
+    (child) => {
+
+      const data =
+        child.val() || {};
+
+      if (!data.deadline) {
+        return;
+      }
+
+      const deadline =
+        new Date(
+          data.deadline
+        ).getTime();
+
+      if (
+        !isNaN(deadline) &&
+        deadline < now
+      ) {
+
+        deletions.push({
+          id: child.key,
+          title: data.title
+        });
+      }
+    }
+  );
+
+  for (
+    const item of deletions
+  ) {
+
+    await db
+      .ref(
+        `${OPPORTUNITIES_PATH}/${item.id}`
+      )
+      .remove();
+
+    console.log(
+      "🗑️ Deleted:",
+      item.title
+    );
+  }
+
+  console.log(
+    `🧹 Removed ${deletions.length} expired opportunities.`
+  );
+}
+
+// ======================================================
+// CLEAN OLD DATA WITHOUT DEADLINE
+// ======================================================
+//
+// Hatuifuti opportunities zisizo na deadline.
+// Zinaweza kuwa jobs ambazo zinaendelea.
+// Hivyo tunaziweka.
+//
+
+// ======================================================
+// RUN BOT
+// ======================================================
+
+let botRunning = false;
+
+async function runBot() {
+
+  if (botRunning) {
+
+    console.log(
+      "⏳ Bot bado ina-run..."
+    );
+
+    return;
+  }
+
+  botRunning = true;
+
+  console.log("");
+  console.log(
+    "=========================================="
+  );
+
+  console.log(
+    "🤖 MAKYAMA GLOBAL OPPORTUNITY BOT"
+  );
+
+  console.log(
+    "=========================================="
+  );
+
+  console.log(
+    "Time:",
+    new Date().toISOString()
+  );
+
+  try {
+
+    // ----------------------------------------
+    // 1. DELETE EXPIRED
+    // ----------------------------------------
+
+    await deleteExpiredOpportunities();
+
+    // ----------------------------------------
+    // 2. FETCH RSS SOURCES
+    // ----------------------------------------
+
+    for (
+      const source of RSS_SOURCES
+    ) {
+
+      await fetchRSSSource(
+        source
+      );
+    }
+
+    console.log("");
+    console.log(
+      "✅ BOT FINISHED"
+    );
+
+  } catch (error) {
+
+    console.error(
+      "❌ BOT ERROR:",
+      error
+    );
+
+  } finally {
+
+    botRunning = false;
+  }
+}
+
+// ======================================================
+// API — GET ALL OPPORTUNITIES
+// ======================================================
 
 app.get(
-  "/media",
+  "/opportunities",
   async (req, res) => {
 
     try {
 
       const snapshot =
         await db
-          .ref(MEDIA_PATH)
+          .ref(OPPORTUNITIES_PATH)
           .once("value");
 
-      if (!snapshot.exists()) {
+      const opportunities = [];
 
-        return res.json({
-          success: true,
-          count: 0,
-          media: []
-        });
+      if (snapshot.exists()) {
+
+        snapshot.forEach(
+          (child) => {
+
+            opportunities.push({
+
+              id:
+                child.key,
+
+              ...child.val()
+
+            });
+          }
+        );
       }
 
-      const media = [];
-
-      snapshot.forEach(
-        (child) => {
-
-          media.push({
-
-            id:
-              child.key,
-
-            ...child.val()
-          });
-        }
+      // Newest first
+      opportunities.sort(
+        (a, b) =>
+          (b.addedAt || 0) -
+          (a.addedAt || 0)
       );
 
       res.json({
@@ -997,16 +815,16 @@ app.get(
         success: true,
 
         count:
-          media.length,
+          opportunities.length,
 
-        media:
-          media
+        opportunities
+
       });
 
     } catch (error) {
 
       console.error(
-        "❌ Media error:",
+        "❌ GET opportunities error:",
         error
       );
 
@@ -1016,14 +834,196 @@ app.get(
 
         message:
           error.message
+
       });
     }
   }
 );
 
-// ==========================================
+// ======================================================
+// API — GET ONE
+// ======================================================
+
+app.get(
+  "/opportunities/:id",
+  async (req, res) => {
+
+    try {
+
+      const snapshot =
+        await db
+          .ref(
+            `${OPPORTUNITIES_PATH}/${req.params.id}`
+          )
+          .once("value");
+
+      if (!snapshot.exists()) {
+
+        return res.status(404).json({
+
+          success: false,
+
+          message:
+            "Opportunity haipo."
+
+        });
+      }
+
+      res.json({
+
+        success: true,
+
+        id:
+          req.params.id,
+
+        opportunity:
+          snapshot.val()
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        "❌ GET ONE error:",
+        error
+      );
+
+      res.status(500).json({
+
+        success: false,
+
+        message:
+          error.message
+
+      });
+    }
+  }
+);
+
+// ======================================================
+// API — MANUAL BOT RUN
+// ======================================================
+
+app.post(
+  "/bot/run",
+  async (req, res) => {
+
+    try {
+
+      await runBot();
+
+      res.json({
+
+        success: true,
+
+        message:
+          "Bot ime-run."
+
+      });
+
+    } catch (error) {
+
+      res.status(500).json({
+
+        success: false,
+
+        message:
+          error.message
+
+      });
+    }
+  }
+);
+
+// ======================================================
+// HEALTH
+// ======================================================
+
+app.get(
+  "/health",
+  async (req, res) => {
+
+    try {
+
+      await db
+        .ref(OPPORTUNITIES_PATH)
+        .limitToFirst(1)
+        .once("value");
+
+      res.json({
+
+        status:
+          "ok",
+
+        firebase:
+          "connected",
+
+        bot:
+          botRunning
+            ? "processing"
+            : "ready",
+
+        sources:
+          RSS_SOURCES.length
+
+      });
+
+    } catch (error) {
+
+      res.status(500).json({
+
+        status:
+          "error",
+
+        firebase:
+          "error",
+
+        message:
+          error.message
+
+      });
+    }
+  }
+);
+
+// ======================================================
+// HOME
+// ======================================================
+
+app.get(
+  "/",
+  (req, res) => {
+
+    res.json({
+
+      status:
+        "online",
+
+      bot:
+        "MAKYAMA GLOBAL OPPORTUNITY BOT",
+
+      version:
+        "3.0",
+
+      database:
+        "Firebase Realtime Database",
+
+      opportunitiesPath:
+        OPPORTUNITIES_PATH,
+
+      sources:
+        RSS_SOURCES.length,
+
+      interval:
+        "30 minutes"
+
+    });
+  }
+);
+
+// ======================================================
 // START SERVER
-// ==========================================
+// ======================================================
 
 app.listen(
   PORT,
@@ -1031,46 +1031,49 @@ app.listen(
 
     console.log("");
     console.log(
-      "================================="
+      "=========================================="
     );
 
     console.log(
-      `🚀 MAKYAMA BOT V2 online`
+      "🚀 MAKYAMA BOT ONLINE"
     );
 
     console.log(
-      `🌐 Port: ${PORT}`
+      "=========================================="
     );
 
     console.log(
-      "================================="
+      "Port:",
+      PORT
     );
 
     console.log(
-      "🔥 Firebase:"
+      "Sources:",
+      RSS_SOURCES.length
     );
 
     console.log(
+      "Database:",
       process.env.FIREBASE_DATABASE_URL ||
-      "https://makyama-e5e89-default-rtdb.firebaseio.com/"
+      "Firebase default database"
     );
 
-    console.log("");
+    console.log(
+      "Interval:",
+      "30 minutes"
+    );
 
-    // Start first check
-    processRequests();
+    console.log(
+      "=========================================="
+    );
+
+    // Run immediately
+    runBot();
+
+    // Run every 30 minutes
+    setInterval(
+      runBot,
+      BOT_INTERVAL
+    );
   }
-);
-
-// ==========================================
-// CHECK EVERY 10 SECONDS
-// ==========================================
-
-setInterval(
-  () => {
-
-    processRequests();
-
-  },
-  10000
 );
