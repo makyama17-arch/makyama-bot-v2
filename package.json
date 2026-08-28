@@ -1,14 +1,14 @@
 {
-  "name": "makyama-bot-v2",
-  "version": "1.0.0",
-  "description": "MAKYAMA audio request bot",
+  "name": "makyama-opportunities-bot",
+  "version": "3.0.0",
+  "description": "MAKYAMA Global Opportunities Bot",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
-    "express": "^5.1.0",
-    "firebase-admin": "^13.4.0",
-    "axios": "^1.11.0"
+    "express": "^4.21.2",
+    "firebase-admin": "^13.0.2",
+    "rss-parser": "^3.13.0"
   }
 }
