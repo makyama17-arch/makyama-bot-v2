@@ -1,6 +1,6 @@
 {
-  "name": "makyama-bot-v4",
-  "version": "4.0.0",
+  "name": "makyama-bot-v5",
+  "version": "5.0.0",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
