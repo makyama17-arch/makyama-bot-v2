@@ -28,7 +28,6 @@ try {
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-
   databaseURL:
     process.env.FIREBASE_DATABASE_URL ||
     "https://makyama-e5e89-default-rtdb.firebaseio.com/"
@@ -38,135 +37,104 @@ const db = admin.database();
 
 const OPPORTUNITIES_PATH = "opportunities";
 
-
-// ======================================================
-// SETTINGS
-// ======================================================
-
 const BOT_INTERVAL = 30 * 60 * 1000;
-
 const REQUEST_TIMEOUT = 30000;
 
 
 // ======================================================
-// FETCH HELPER
+// FETCH
 // ======================================================
 
-async function fetchWithTimeout(
-  url,
-  options = {}
-) {
+async function fetchWithTimeout(url, options = {}) {
 
-  const controller =
-    new AbortController();
+  const controller = new AbortController();
 
-  const timeout =
-    setTimeout(
-      () => controller.abort(),
-      REQUEST_TIMEOUT
-    );
+  const timeout = setTimeout(
+    () => controller.abort(),
+    REQUEST_TIMEOUT
+  );
 
   try {
 
-    const response =
-      await fetch(
-        url,
-        {
-          ...options,
-          signal:
-            controller.signal,
+    return await fetch(url, {
+      ...options,
 
-          headers: {
-            "User-Agent":
-              "MAKYAMA Global Opportunities Bot/1.0",
+      signal: controller.signal,
 
-            "Accept":
-              "application/json,text/html,application/xhtml+xml,application/xml",
+      headers: {
+        "User-Agent":
+          "MAKYAMA Global Opportunities Bot/5.0",
 
-            ...(options.headers || {})
-          }
-        }
-      );
+        "Accept":
+          "application/json,text/html,application/xhtml+xml,application/xml",
 
-    return response;
+        ...(options.headers || {})
+      }
+    });
 
   } finally {
 
     clearTimeout(timeout);
+
   }
 }
 
 
 // ======================================================
-// CLEAN HTML
+// CLEAN HTML / ENTITIES
 // ======================================================
 
 function cleanText(value) {
 
-  if (!value) {
-    return "";
-  }
+  if (!value) return "";
 
   return String(value)
 
-    .replace(
-      /<script[\s\S]*?<\/script>/gi,
-      " "
-    )
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
 
-    .replace(
-      /<style[\s\S]*?<\/style>/gi,
-      " "
-    )
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
 
-    .replace(
-      /<[^>]+>/g,
-      " "
-    )
+    .replace(/<[^>]+>/g, " ")
 
-    .replace(
-      /&nbsp;/gi,
-      " "
-    )
+    .replace(/&nbsp;/gi, " ")
 
-    .replace(
-      /&amp;/gi,
-      "&"
-    )
+    .replace(/&amp;/gi, "&")
 
-    .replace(
-      /&quot;/gi,
-      '"'
-    )
+    .replace(/&quot;/gi, '"')
 
-    .replace(
-      /&#39;/gi,
-      "'"
-    )
+    .replace(/&#39;/gi, "'")
 
-    .replace(
-      /\s+/g,
-      " "
-    )
+    .replace(/&apos;/gi, "'")
+
+    .replace(/&ndash;/gi, "–")
+
+    .replace(/&mdash;/gi, "—")
+
+    .replace(/&hellip;/gi, "…")
+
+    .replace(/&#8211;/gi, "–")
+
+    .replace(/&#8212;/gi, "—")
+
+    .replace(/&#8230;/gi, "…")
+
+    .replace(/\s+/g, " ")
 
     .trim();
 }
 
 
 // ======================================================
-// VALID URL
+// URL
 // ======================================================
 
 function validUrl(url) {
 
-  if (!url) {
-    return false;
-  }
+  if (!url) return false;
 
   try {
 
-    const parsed =
-      new URL(url);
+    const parsed = new URL(url);
 
     return (
       parsed.protocol === "http:" ||
@@ -176,37 +144,28 @@ function validUrl(url) {
   } catch {
 
     return false;
+
   }
 }
 
 
 // ======================================================
-// DATABASE ID
+// ID
 // ======================================================
 
-function makeId(
-  title,
-  url
-) {
+function makeId(title, url) {
 
   return `${title}-${url}`
+
     .toLowerCase()
-    .replace(
-      /https?:\/\//g,
-      ""
-    )
-    .replace(
-      /[^a-z0-9]+/g,
-      "-"
-    )
-    .replace(
-      /^-+|-+$/g,
-      ""
-    )
-    .substring(
-      0,
-      180
-    );
+
+    .replace(/https?:\/\//g, "")
+
+    .replace(/[^a-z0-9]+/g, "-")
+
+    .replace(/^-+|-+$/g, "")
+
+    .substring(0, 180);
 }
 
 
@@ -216,19 +175,11 @@ function makeId(
 
 function parseDate(value) {
 
-  if (!value) {
-    return null;
-  }
+  if (!value) return null;
 
-  const date =
-    new Date(value);
+  const date = new Date(value);
 
-  if (
-    isNaN(
-      date.getTime()
-    )
-  ) {
-
+  if (isNaN(date.getTime())) {
     return null;
   }
 
@@ -237,164 +188,28 @@ function parseDate(value) {
 
 
 // ======================================================
-// CATEGORY
-// ======================================================
-
-function detectCategory(
-  title,
-  description,
-  defaultCategory
-) {
-
-  const text =
-    `${title} ${description}`
-      .toLowerCase();
-
-  if (
-    text.includes("scholarship") ||
-    text.includes("scholarships") ||
-    text.includes("ufadhili")
-  ) {
-
-    return "Scholarship";
-  }
-
-  if (
-    text.includes("fellowship")
-  ) {
-
-    return "Fellowship";
-  }
-
-  if (
-    text.includes("internship") ||
-    text.includes("intern ")
-  ) {
-
-    return "Internship";
-  }
-
-  if (
-    text.includes("grant") ||
-    text.includes("funding") ||
-    text.includes("award")
-  ) {
-
-    return "Grant";
-  }
-
-  if (
-    text.includes("hackathon")
-  ) {
-
-    return "Hackathon";
-  }
-
-  if (
-    text.includes("competition") ||
-    text.includes("contest")
-  ) {
-
-    return "Competition";
-  }
-
-  if (
-    text.includes("job") ||
-    text.includes("vacancy") ||
-    text.includes("nafasi za kazi") ||
-    text.includes("employment")
-  ) {
-
-    return "Job";
-  }
-
-  return (
-    defaultCategory ||
-    "Opportunity"
-  );
-}
-
-
-// ======================================================
-// FUNDING
-// ======================================================
-
-function detectFunding(
-  title,
-  description
-) {
-
-  const text =
-    `${title} ${description}`
-      .toLowerCase();
-
-  if (
-    text.includes("fully funded")
-  ) {
-
-    return "Fully Funded";
-  }
-
-  if (
-    text.includes("full scholarship")
-  ) {
-
-    return "Fully Funded";
-  }
-
-  if (
-    text.includes("stipend")
-  ) {
-
-    return "Stipend";
-  }
-
-  if (
-    text.includes("grant")
-  ) {
-
-    return "Grant";
-  }
-
-  return "";
-}
-
-
-// ======================================================
-// DEADLINE EXTRACTION
+// DEADLINE
 // ======================================================
 
 function extractDeadline(text) {
 
-  if (!text) {
-    return null;
-  }
+  if (!text) return null;
 
-  const clean =
-    cleanText(text);
-
+  const clean = cleanText(text);
 
   // YYYY-MM-DD
 
-  let match =
-    clean.match(
-      /\b(20\d{2})[-\/](0?[1-9]|1[0-2])[-\/](0?[1-9]|[12]\d|3[01])\b/
-    );
-
+  let match = clean.match(
+    /\b(20\d{2})[-\/](0?[1-9]|1[0-2])[-\/](0?[1-9]|[12]\d|3[01])\b/
+  );
 
   if (match) {
 
-    const date =
-      new Date(
-        `${match[1]}-${String(match[2]).padStart(2, "0")}-${String(match[3]).padStart(2, "0")}T23:59:59Z`
-      );
+    const date = new Date(
+      `${match[1]}-${String(match[2]).padStart(2, "0")}-${String(match[3]).padStart(2, "0")}T23:59:59Z`
+    );
 
-    if (
-      !isNaN(
-        date.getTime()
-      )
-    ) {
-
+    if (!isNaN(date.getTime())) {
       return date.toISOString();
     }
   }
@@ -402,25 +217,35 @@ function extractDeadline(text) {
 
   // Month DD YYYY
 
-  match =
-    clean.match(
-      /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+([0-3]?\d),?\s+(20\d{2})\b/i
-    );
-
+  match = clean.match(
+    /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+([0-3]?\d),?\s+(20\d{2})\b/i
+  );
 
   if (match) {
 
-    const date =
-      new Date(
-        `${match[1]} ${match[2]}, ${match[3]} 23:59:59 UTC`
-      );
+    const date = new Date(
+      `${match[1]} ${match[2]}, ${match[3]} 23:59:59 UTC`
+    );
 
-    if (
-      !isNaN(
-        date.getTime()
-      )
-    ) {
+    if (!isNaN(date.getTime())) {
+      return date.toISOString();
+    }
+  }
 
+
+  // DD Month YYYY
+
+  match = clean.match(
+    /\b([0-3]?\d)\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})\b/i
+  );
+
+  if (match) {
+
+    const date = new Date(
+      `${match[2]} ${match[1]}, ${match[3]} 23:59:59 UTC`
+    );
+
+    if (!isNaN(date.getTime())) {
       return date.toISOString();
     }
   }
@@ -431,48 +256,143 @@ function extractDeadline(text) {
 
 
 // ======================================================
-// SAVE OPPORTUNITY
+// CATEGORY
 // ======================================================
 
-async function saveOpportunity(data) {
+function detectCategory(
+  title,
+  description,
+  defaultCategory = "Opportunity"
+) {
+
+  const text =
+    `${title} ${description}`.toLowerCase();
+
 
   if (
-    !data.title ||
-    !data.url
+    text.includes("scholarship") ||
+    text.includes("scholarships") ||
+    text.includes("ufadhili")
   ) {
-
-    return false;
+    return "Scholarship";
   }
 
 
   if (
-    !validUrl(
-      data.url
-    )
+    text.includes("fellowship")
   ) {
+    return "Fellowship";
+  }
 
+
+  if (
+    text.includes("internship") ||
+    text.includes("intern ")
+  ) {
+    return "Internship";
+  }
+
+
+  if (
+    text.includes("grant") ||
+    text.includes("funding")
+  ) {
+    return "Grant";
+  }
+
+
+  if (
+    text.includes("hackathon")
+  ) {
+    return "Hackathon";
+  }
+
+
+  if (
+    text.includes("competition") ||
+    text.includes("contest")
+  ) {
+    return "Competition";
+  }
+
+
+  if (
+    text.includes("job") ||
+    text.includes("vacancy") ||
+    text.includes("nafasi za kazi") ||
+    text.includes("employment")
+  ) {
+    return "Job";
+  }
+
+
+  return defaultCategory;
+}
+
+
+// ======================================================
+// FUNDING
+// ======================================================
+
+function detectFunding(title, description) {
+
+  const text =
+    `${title} ${description}`.toLowerCase();
+
+
+  if (
+    text.includes("fully funded") ||
+    text.includes("fully-funded") ||
+    text.includes("full scholarship")
+  ) {
+    return "Fully Funded";
+  }
+
+
+  if (
+    text.includes("stipend")
+  ) {
+    return "Stipend";
+  }
+
+
+  if (
+    text.includes("grant")
+  ) {
+    return "Grant";
+  }
+
+
+  return "";
+}
+
+
+// ======================================================
+// SAVE
+// ======================================================
+
+async function saveOpportunity(data) {
+
+  if (!data.title || !data.url) {
+    return false;
+  }
+
+
+  if (!validUrl(data.url)) {
     return false;
   }
 
 
   const title =
-    cleanText(
-      data.title
-    );
+    cleanText(data.title);
 
 
   const description =
-    cleanText(
-      data.description ||
-      ""
-    );
+    cleanText(data.description || "");
 
 
   const id =
-    makeId(
-      title,
-      data.url
-    );
+    makeId(title, data.url);
 
 
   const ref =
@@ -482,14 +402,10 @@ async function saveOpportunity(data) {
 
 
   const existing =
-    await ref.once(
-      "value"
-    );
+    await ref.once("value");
 
 
-  if (
-    existing.exists()
-  ) {
+  if (existing.exists()) {
 
     return false;
   }
@@ -502,10 +418,10 @@ async function saveOpportunity(data) {
     description,
 
     category:
+      data.category ||
       detectCategory(
         title,
-        description,
-        data.category
+        description
       ),
 
     country:
@@ -517,6 +433,7 @@ async function saveOpportunity(data) {
       "",
 
     funding:
+      data.funding ||
       detectFunding(
         title,
         description
@@ -548,35 +465,16 @@ async function saveOpportunity(data) {
   };
 
 
-  await ref.set(
-    record
-  );
+  await ref.set(record);
 
 
   console.log("");
-  console.log(
-    "✅ NEW OPPORTUNITY"
-  );
-
-  console.log(
-    "Title:",
-    title
-  );
-
-  console.log(
-    "Category:",
-    record.category
-  );
-
-  console.log(
-    "Country:",
-    record.country
-  );
-
-  console.log(
-    "Source:",
-    record.source
-  );
+  console.log("✅ NEW OPPORTUNITY");
+  console.log("Title:", title);
+  console.log("Category:", record.category);
+  console.log("Country:", record.country);
+  console.log("Deadline:", record.deadline || "N/A");
+  console.log("Source:", record.source);
 
 
   return true;
@@ -584,79 +482,61 @@ async function saveOpportunity(data) {
 
 
 // ======================================================
-// GRANTS.GOV API
+// GRANTS.GOV
 // ======================================================
 
 async function fetchGrantsGov() {
 
   console.log("");
-  console.log(
-    "🇺🇸 Checking Grants.gov API..."
-  );
-
-
-  const body = {
-
-    rows: 50,
-
-    keyword: "",
-
-    oppStatuses:
-      "posted|forecasted",
-
-    eligibilities:
-      "",
-
-    agencies:
-      "",
-
-    fundingCategories:
-      "",
-
-    fundingInstruments:
-      "",
-
-    aln:
-      ""
-
-  };
+  console.log("🇺🇸 Checking Grants.gov API...");
 
 
   try {
 
     const response =
       await fetchWithTimeout(
-
         "https://api.grants.gov/v1/api/search2",
-
         {
-
-          method:
-            "POST",
+          method: "POST",
 
           headers: {
-
             "Content-Type":
               "application/json",
 
             "Accept":
               "application/json"
-
           },
 
-          body:
-            JSON.stringify(
-              body
-            )
+          body: JSON.stringify({
 
+            rows: 50,
+
+            keyword: "",
+
+            oppStatuses:
+              "posted|forecasted",
+
+            eligibilities:
+              "",
+
+            agencies:
+              "",
+
+            fundingCategories:
+              "",
+
+            fundingInstruments:
+              "",
+
+            aln:
+              ""
+
+          })
         }
-
       );
 
 
-    if (
-      !response.ok
-    ) {
+    if (!response.ok) {
 
       throw new Error(
         `HTTP ${response.status}`
@@ -669,8 +549,7 @@ async function fetchGrantsGov() {
 
 
     const items =
-      json?.data?.oppHits ||
-      [];
+      json?.data?.oppHits || [];
 
 
     console.log(
@@ -678,14 +557,22 @@ async function fetchGrantsGov() {
     );
 
 
-    for (
-      const item of items
-    ) {
+    for (const item of items) {
+
+      if (!item.title) {
+        continue;
+      }
+
 
       const url =
         item.id
           ? `https://www.grants.gov/search-results-detail/${item.id}`
           : "";
+
+
+      if (!url) {
+        continue;
+      }
 
 
       await saveOpportunity({
@@ -701,6 +588,9 @@ async function fetchGrantsGov() {
 
         country:
           "United States / International",
+
+        region:
+          "Global",
 
         url,
 
@@ -718,6 +608,7 @@ async function fetchGrantsGov() {
           )
 
       });
+
     }
 
 
@@ -727,188 +618,113 @@ async function fetchGrantsGov() {
       "❌ Grants.gov:",
       error.message
     );
+
   }
 }
 
 
 // ======================================================
-// UN CAREERS RSS
+// HESLB — FILTERED
 // ======================================================
 
-async function fetchUNJobs() {
+function isRealHESLBOpportunity(title) {
 
-  console.log("");
-  console.log(
-    "🌍 Checking UN Careers..."
+  const text =
+    title.toLowerCase();
+
+
+  // ❌ Do NOT save these
+
+  const blocked = [
+
+    "loan issuance",
+
+    "loan repayment",
+
+    "about loan repayment",
+
+    "about loan issuance",
+
+    "application guideline",
+
+    "application guidelines",
+
+    "online application",
+
+    "olams",
+
+    "beneficiary",
+
+    "repay loan",
+
+    "repayment",
+
+    "loan application"
+
+  ];
+
+
+  for (const word of blocked) {
+
+    if (text.includes(word)) {
+      return false;
+    }
+
+  }
+
+
+  // ✅ Scholarship / education opportunity
+
+  const allowed = [
+
+    "scholarship",
+
+    "scholarships",
+
+    "ufadhili",
+
+    "ngongoro",
+
+    "ngorongoro",
+
+    "samia",
+
+    "nyerere memorial",
+
+    "nyerere",
+
+    "masters scholarship",
+
+    "degree scholarship",
+
+    "education"
+
+  ];
+
+
+  return allowed.some(
+    word => text.includes(word)
   );
-
-
-  const url =
-    "https://careers.un.org/jobfeed?isPage=true&language=en";
-
-
-  try {
-
-    const response =
-      await fetchWithTimeout(
-        url
-      );
-
-
-    if (
-      !response.ok
-    ) {
-
-      throw new Error(
-        `HTTP ${response.status}`
-      );
-    }
-
-
-    const xml =
-      await response.text();
-
-
-    // Extract RSS items manually.
-    // Hatuitegemei parser iliyokuwa inavunjika.
-
-    const items =
-      xml.match(
-        /<item[\s\S]*?<\/item>/gi
-      ) || [];
-
-
-    console.log(
-      `📦 UN items: ${items.length}`
-    );
-
-
-    for (
-      const item of items
-    ) {
-
-      function getTag(
-        tag
-      ) {
-
-        const match =
-          item.match(
-            new RegExp(
-              `<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`,
-              "i"
-            )
-          );
-
-        return match
-          ? cleanText(
-              match[1]
-            )
-          : "";
-      }
-
-
-      const title =
-        getTag(
-          "title"
-        );
-
-
-      const link =
-        getTag(
-          "link"
-        );
-
-
-      const description =
-        getTag(
-          "description"
-        );
-
-
-      const pubDate =
-        getTag(
-          "pubDate"
-        );
-
-
-      if (
-        !title ||
-        !link
-      ) {
-
-        continue;
-      }
-
-
-      await saveOpportunity({
-
-        title,
-
-        description,
-
-        category:
-          "Job",
-
-        country:
-          "Worldwide",
-
-        url:
-          link,
-
-        source:
-          "UN Careers",
-
-        publishedAt:
-          parseDate(
-            pubDate
-          ),
-
-        deadline:
-          extractDeadline(
-            description
-          )
-
-      });
-    }
-
-
-  } catch (error) {
-
-    console.error(
-      "❌ UN Careers:",
-      error.message
-    );
-  }
 }
 
-
-// ======================================================
-// TANZANIA — HESLB
-// ======================================================
 
 async function fetchHESLB() {
 
   console.log("");
-  console.log(
-    "🇹🇿 Checking HESLB..."
-  );
+  console.log("🇹🇿 Checking HESLB Scholarships...");
 
 
   const url =
-    "https://www.heslb.go.tz/index.php/news";
+    "https://www.heslb.go.tz/loanapplication/application-guideline";
 
 
   try {
 
     const response =
-      await fetchWithTimeout(
-        url
-      );
+      await fetchWithTimeout(url);
 
 
-    if (
-      !response.ok
-    ) {
+    if (!response.ok) {
 
       throw new Error(
         `HTTP ${response.status}`
@@ -920,73 +736,35 @@ async function fetchHESLB() {
       await response.text();
 
 
-    // Links to HESLB news
-
     const regex =
       /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
 
 
     let match;
 
-    let count =
-      0;
+    let count = 0;
 
 
     while (
-      (match =
-        regex.exec(html)) !==
-      null
+      (match = regex.exec(html)) !== null
     ) {
 
       const href =
         match[1];
 
+
       const text =
-        cleanText(
-          match[2]
-        );
+        cleanText(match[2]);
 
 
-      if (
-        !text
-      ) {
-
+      if (!text) {
         continue;
       }
 
 
-      const lower =
-        text.toLowerCase();
-
-
-      const useful =
-        lower.includes(
-          "scholarship"
-        ) ||
-        lower.includes(
-          "ufadhili"
-        ) ||
-        lower.includes(
-          "loan"
-        ) ||
-        lower.includes(
-          "mikopo"
-        ) ||
-        lower.includes(
-          "application"
-        ) ||
-        lower.includes(
-          "maombi"
-        ) ||
-        lower.includes(
-          "interview"
-        );
-
-
       if (
-        !useful
+        !isRealHESLBOpportunity(text)
       ) {
-
         continue;
       }
 
@@ -996,9 +774,7 @@ async function fetchHESLB() {
 
 
       if (
-        href.startsWith(
-          "/"
-        )
+        href.startsWith("/")
       ) {
 
         fullUrl =
@@ -1006,9 +782,7 @@ async function fetchHESLB() {
           href;
 
       } else if (
-        href.startsWith(
-          "index.php"
-        )
+        href.startsWith("index.php")
       ) {
 
         fullUrl =
@@ -1018,12 +792,165 @@ async function fetchHESLB() {
       }
 
 
+      if (!validUrl(fullUrl)) {
+        continue;
+      }
+
+
+      const description =
+        `Official HESLB Tanzania opportunity: ${text}`;
+
+
+      await saveOpportunity({
+
+        title:
+          text,
+
+        description,
+
+        category:
+          "Scholarship",
+
+        country:
+          "Tanzania",
+
+        region:
+          "East Africa",
+
+        url:
+          fullUrl,
+
+        source:
+          "HESLB Tanzania",
+
+        deadline:
+          extractDeadline(
+            text
+          )
+
+      });
+
+
+      count++;
+
+
+      if (count >= 30) {
+        break;
+      }
+
+    }
+
+
+    console.log(
+      `📦 HESLB scholarships processed: ${count}`
+    );
+
+
+  } catch (error) {
+
+    console.error(
+      "❌ HESLB:",
+      error.message
+    );
+
+  }
+}
+
+
+// ======================================================
+// AJIRA / PSRS
+// ======================================================
+
+async function fetchAjira() {
+
+  console.log("");
+  console.log("🇹🇿 Checking Ajira / PSRS...");
+
+
+  const url =
+    "https://www.ajira.go.tz/recruitment_management";
+
+
+  try {
+
+    const response =
+      await fetchWithTimeout(url);
+
+
+    if (!response.ok) {
+
+      throw new Error(
+        `HTTP ${response.status}`
+      );
+    }
+
+
+    const html =
+      await response.text();
+
+
+    const regex =
+      /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+
+
+    let match;
+
+    let count = 0;
+
+
+    while (
+      (match = regex.exec(html)) !== null
+    ) {
+
+      const href =
+        match[1];
+
+
+      const text =
+        cleanText(match[2]);
+
+
+      if (!text) {
+        continue;
+      }
+
+
+      const lower =
+        text.toLowerCase();
+
+
       if (
-        !validUrl(
-          fullUrl
+        !lower.includes(
+          "nafasi za kazi"
         )
       ) {
+        continue;
+      }
 
+
+      let fullUrl =
+        href;
+
+
+      if (
+        href.startsWith("/")
+      ) {
+
+        fullUrl =
+          "https://www.ajira.go.tz" +
+          href;
+
+      } else if (
+        href.startsWith("index.php")
+      ) {
+
+        fullUrl =
+          "https://www.ajira.go.tz/" +
+          href;
+      }
+
+
+      if (!validUrl(fullUrl)) {
         continue;
       }
 
@@ -1034,7 +961,157 @@ async function fetchHESLB() {
           text,
 
         description:
-          "HESLB Tanzania — Higher Education Students' Loans Board",
+          "Tangazo rasmi la nafasi za kazi Tanzania — Public Service Recruitment Secretariat.",
+
+        category:
+          "Job",
+
+        country:
+          "Tanzania",
+
+        region:
+          "East Africa",
+
+        url:
+          fullUrl,
+
+        source:
+          "Ajira / PSRS",
+
+        deadline:
+          extractDeadline(
+            text
+          )
+
+      });
+
+
+      count++;
+
+
+      if (count >= 50) {
+        break;
+      }
+
+    }
+
+
+    console.log(
+      `📦 Ajira processed: ${count}`
+    );
+
+
+  } catch (error) {
+
+    console.error(
+      "❌ Ajira:",
+      error.message
+    );
+
+  }
+}
+
+
+// ======================================================
+// EXTRA TANZANIA FILTER
+// ======================================================
+
+async function fetchHESLBNews() {
+
+  console.log("");
+  console.log(
+    "🇹🇿 Checking HESLB latest news..."
+  );
+
+
+  const url =
+    "https://www.heslb.go.tz/news";
+
+
+  try {
+
+    const response =
+      await fetchWithTimeout(url);
+
+
+    if (!response.ok) {
+      throw new Error(
+        `HTTP ${response.status}`
+      );
+    }
+
+
+    const html =
+      await response.text();
+
+
+    const regex =
+      /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+
+
+    let match;
+
+    let count = 0;
+
+
+    while (
+      (match = regex.exec(html)) !== null
+    ) {
+
+      const href =
+        match[1];
+
+
+      const text =
+        cleanText(match[2]);
+
+
+      if (!text) {
+        continue;
+      }
+
+
+      if (
+        !isRealHESLBOpportunity(text)
+      ) {
+        continue;
+      }
+
+
+      let fullUrl =
+        href;
+
+
+      if (
+        href.startsWith("/")
+      ) {
+
+        fullUrl =
+          "https://www.heslb.go.tz" +
+          href;
+
+      } else if (
+        href.startsWith("index.php")
+      ) {
+
+        fullUrl =
+          "https://www.heslb.go.tz/" +
+          href;
+      }
+
+
+      if (!validUrl(fullUrl)) {
+        continue;
+      }
+
+
+      await saveOpportunity({
+
+        title:
+          text,
+
+        description:
+          `HESLB Tanzania: ${text}`,
 
         category:
           "Scholarship",
@@ -1057,200 +1134,25 @@ async function fetchHESLB() {
       count++;
 
 
-      if (
-        count >= 30
-      ) {
-
+      if (count >= 20) {
         break;
       }
+
     }
 
 
     console.log(
-      `📦 HESLB processed: ${count}`
+      `📦 HESLB news opportunities: ${count}`
     );
 
 
   } catch (error) {
 
     console.error(
-      "❌ HESLB:",
+      "❌ HESLB News:",
       error.message
     );
-  }
-}
 
-
-// ======================================================
-// TANZANIA — AJIRA / PSRS
-// ======================================================
-
-async function fetchAjira() {
-
-  console.log("");
-  console.log(
-    "🇹🇿 Checking Ajira / PSRS..."
-  );
-
-
-  const url =
-    "https://www.ajira.go.tz/recruitment_management";
-
-
-  try {
-
-    const response =
-      await fetchWithTimeout(
-        url
-      );
-
-
-    if (
-      !response.ok
-    ) {
-
-      throw new Error(
-        `HTTP ${response.status}`
-      );
-    }
-
-
-    const html =
-      await response.text();
-
-
-    const regex =
-      /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-
-
-    let match;
-
-    let count =
-      0;
-
-
-    while (
-      (match =
-        regex.exec(html)) !==
-      null
-    ) {
-
-      const href =
-        match[1];
-
-      const text =
-        cleanText(
-          match[2]
-        );
-
-
-      if (
-        !text
-      ) {
-
-        continue;
-      }
-
-
-      const lower =
-        text.toLowerCase();
-
-
-      if (
-        !lower.includes(
-          "nafasi za kazi"
-        )
-      ) {
-
-        continue;
-      }
-
-
-      let fullUrl =
-        href;
-
-
-      if (
-        href.startsWith(
-          "/"
-        )
-      ) {
-
-        fullUrl =
-          "https://www.ajira.go.tz" +
-          href;
-
-      } else if (
-        href.startsWith(
-          "index.php"
-        )
-      ) {
-
-        fullUrl =
-          "https://www.ajira.go.tz/" +
-          href;
-      }
-
-
-      if (
-        !validUrl(
-          fullUrl
-        )
-      ) {
-
-        continue;
-      }
-
-
-      await saveOpportunity({
-
-        title:
-          text,
-
-        description:
-          "Tangazo la nafasi za kazi Tanzania — Public Service Recruitment Secretariat",
-
-        category:
-          "Job",
-
-        country:
-          "Tanzania",
-
-        region:
-          "East Africa",
-
-        url:
-          fullUrl,
-
-        source:
-          "Ajira / PSRS"
-
-      });
-
-
-      count++;
-
-
-      if (
-        count >= 50
-      ) {
-
-        break;
-      }
-    }
-
-
-    console.log(
-      `📦 Ajira processed: ${count}`
-    );
-
-
-  } catch (error) {
-
-    console.error(
-      "❌ Ajira:",
-      error.message
-    );
   }
 }
 
@@ -1269,17 +1171,11 @@ async function deleteExpired() {
 
   const snapshot =
     await db
-      .ref(
-        OPPORTUNITIES_PATH
-      )
-      .once(
-        "value"
-      );
+      .ref(OPPORTUNITIES_PATH)
+      .once("value");
 
 
-  if (
-    !snapshot.exists()
-  ) {
+  if (!snapshot.exists()) {
 
     console.log(
       "ℹ️ Nothing to delete."
@@ -1293,9 +1189,7 @@ async function deleteExpired() {
     Date.now();
 
 
-  let deleted =
-    0;
-
+  let deleted = 0;
 
   const tasks = [];
 
@@ -1304,14 +1198,10 @@ async function deleteExpired() {
     child => {
 
       const data =
-        child.val() ||
-        {};
+        child.val() || {};
 
 
-      if (
-        !data.deadline
-      ) {
-
+      if (!data.deadline) {
         return;
       }
 
@@ -1323,11 +1213,8 @@ async function deleteExpired() {
 
 
       if (
-        !isNaN(
-          deadline
-        ) &&
-        deadline <
-          now
+        !isNaN(deadline) &&
+        deadline < now
       ) {
 
         tasks.push(
@@ -1338,28 +1225,26 @@ async function deleteExpired() {
             )
             .remove()
 
-            .then(
-              () => {
+            .then(() => {
 
-                console.log(
-                  "🗑️ Deleted:",
-                  data.title
-                );
+              console.log(
+                "🗑️ Deleted expired:",
+                data.title
+              );
 
-                deleted++;
-              }
-            )
+              deleted++;
+
+            })
 
         );
+
       }
 
     }
   );
 
 
-  await Promise.all(
-    tasks
-  );
+  await Promise.all(tasks);
 
 
   console.log(
@@ -1369,18 +1254,15 @@ async function deleteExpired() {
 
 
 // ======================================================
-// RUN BOT
+// BOT
 // ======================================================
 
-let running =
-  false;
+let running = false;
 
 
 async function runBot() {
 
-  if (
-    running
-  ) {
+  if (running) {
 
     console.log(
       "⏳ Bot already running..."
@@ -1390,8 +1272,7 @@ async function runBot() {
   }
 
 
-  running =
-    true;
+  running = true;
 
 
   console.log("");
@@ -1400,7 +1281,7 @@ async function runBot() {
   );
 
   console.log(
-    "🤖 MAKYAMA GLOBAL + TANZANIA BOT"
+    "🤖 MAKYAMA GLOBAL + TANZANIA BOT V5"
   );
 
   console.log(
@@ -1408,29 +1289,29 @@ async function runBot() {
   );
 
   console.log(
+    "Time:",
     new Date().toISOString()
   );
 
 
   try {
 
-    // 1
+    // CLEAN FIRST
+
     await deleteExpired();
 
 
-    // 2
+    // GLOBAL
+
     await fetchGrantsGov();
 
 
-    // 3
-    await fetchUNJobs();
+    // TANZANIA
 
-
-    // 4
     await fetchHESLB();
 
+    await fetchHESLBNews();
 
-    // 5
     await fetchAjira();
 
 
@@ -1449,42 +1330,32 @@ async function runBot() {
 
   } finally {
 
-    running =
-      false;
+    running = false;
+
   }
 }
 
 
 // ======================================================
-// API — ALL OPPORTUNITIES
+// API — ALL
 // ======================================================
 
 app.get(
   "/opportunities",
-  async (
-    req,
-    res
-  ) => {
+  async (req, res) => {
 
     try {
 
       const snapshot =
         await db
-          .ref(
-            OPPORTUNITIES_PATH
-          )
-          .once(
-            "value"
-          );
+          .ref(OPPORTUNITIES_PATH)
+          .once("value");
 
 
-      const opportunities =
-        [];
+      const opportunities = [];
 
 
-      if (
-        snapshot.exists()
-      ) {
+      if (snapshot.exists()) {
 
         snapshot.forEach(
           child => {
@@ -1500,6 +1371,7 @@ app.get(
 
           }
         );
+
       }
 
 
@@ -1525,9 +1397,7 @@ app.get(
 
     } catch (error) {
 
-      res.status(
-        500
-      ).json({
+      res.status(500).json({
 
         success:
           false,
@@ -1536,6 +1406,92 @@ app.get(
           error.message
 
       });
+
+    }
+  }
+);
+
+
+// ======================================================
+// API — FILTER
+// ======================================================
+
+app.get(
+  "/opportunities/category/:category",
+  async (req, res) => {
+
+    try {
+
+      const snapshot =
+        await db
+          .ref(OPPORTUNITIES_PATH)
+          .once("value");
+
+
+      const list = [];
+
+
+      if (snapshot.exists()) {
+
+        snapshot.forEach(
+          child => {
+
+            const data =
+              child.val() || {};
+
+
+            if (
+              String(
+                data.category || ""
+              ).toLowerCase() ===
+              String(
+                req.params.category
+              ).toLowerCase()
+            ) {
+
+              list.push({
+
+                id:
+                  child.key,
+
+                ...data
+
+              });
+
+            }
+
+          }
+        );
+
+      }
+
+
+      res.json({
+
+        success:
+          true,
+
+        count:
+          list.length,
+
+        opportunities:
+          list
+
+      });
+
+
+    } catch (error) {
+
+      res.status(500).json({
+
+        success:
+          false,
+
+        message:
+          error.message
+
+      });
+
     }
   }
 );
@@ -1547,10 +1503,7 @@ app.get(
 
 app.get(
   "/opportunities/:id",
-  async (
-    req,
-    res
-  ) => {
+  async (req, res) => {
 
     try {
 
@@ -1559,18 +1512,12 @@ app.get(
           .ref(
             `${OPPORTUNITIES_PATH}/${req.params.id}`
           )
-          .once(
-            "value"
-          );
+          .once("value");
 
 
-      if (
-        !snapshot.exists()
-      ) {
+      if (!snapshot.exists()) {
 
-        return res.status(
-          404
-        ).json({
+        return res.status(404).json({
 
           success:
             false,
@@ -1579,6 +1526,7 @@ app.get(
             "Opportunity haipo."
 
         });
+
       }
 
 
@@ -1598,9 +1546,7 @@ app.get(
 
     } catch (error) {
 
-      res.status(
-        500
-      ).json({
+      res.status(500).json({
 
         success:
           false,
@@ -1609,6 +1555,7 @@ app.get(
           error.message
 
       });
+
     }
   }
 );
@@ -1620,10 +1567,7 @@ app.get(
 
 app.post(
   "/bot/run",
-  async (
-    req,
-    res
-  ) => {
+  async (req, res) => {
 
     runBot();
 
@@ -1634,9 +1578,10 @@ app.post(
         true,
 
       message:
-        "Bot imeanzishwa."
+        "MAKYAMA Bot V5 imeanzishwa."
 
     });
+
   }
 );
 
@@ -1647,21 +1592,14 @@ app.post(
 
 app.get(
   "/health",
-  async (
-    req,
-    res
-  ) => {
+  async (req, res) => {
 
     try {
 
       await db
-        .ref(
-          OPPORTUNITIES_PATH
-        )
+        .ref(OPPORTUNITIES_PATH)
         .limitToFirst(1)
-        .once(
-          "value"
-        );
+        .once("value");
 
 
       res.json({
@@ -1677,17 +1615,22 @@ app.get(
             ? "processing"
             : "ready",
 
+        version:
+          "5.0",
+
         sources:
-          4
+          [
+            "Grants.gov",
+            "HESLB Tanzania",
+            "Ajira / PSRS Tanzania"
+          ]
 
       });
 
 
     } catch (error) {
 
-      res.status(
-        500
-      ).json({
+      res.status(500).json({
 
         status:
           "error",
@@ -1699,6 +1642,7 @@ app.get(
           error.message
 
       });
+
     }
   }
 );
@@ -1710,10 +1654,7 @@ app.get(
 
 app.get(
   "/",
-  (
-    req,
-    res
-  ) => {
+  (req, res) => {
 
     res.json({
 
@@ -1721,10 +1662,10 @@ app.get(
         "online",
 
       bot:
-        "MAKYAMA GLOBAL + TANZANIA",
+        "MAKYAMA GLOBAL + TANZANIA V5",
 
       version:
-        "4.0",
+        "5.0",
 
       database:
         "Firebase Realtime Database",
@@ -1732,7 +1673,6 @@ app.get(
       sources:
         [
           "Grants.gov",
-          "UN Careers",
           "HESLB Tanzania",
           "Ajira / PSRS Tanzania"
         ],
@@ -1741,6 +1681,7 @@ app.get(
         "30 minutes"
 
     });
+
   }
 );
 
@@ -1759,7 +1700,7 @@ app.listen(
     );
 
     console.log(
-      "🚀 MAKYAMA BOT ONLINE"
+      "🚀 MAKYAMA BOT V5 ONLINE"
     );
 
     console.log(
@@ -1772,13 +1713,13 @@ app.listen(
     );
 
     console.log(
-      "Sources:",
-      4
+      "Interval:",
+      "30 minutes"
     );
 
     console.log(
-      "Interval:",
-      "30 minutes"
+      "Sources:",
+      "Grants.gov + HESLB + Ajira/PSRS"
     );
 
     console.log(
@@ -1786,11 +1727,13 @@ app.listen(
     );
 
 
-    // Run immediately
+    // RUN IMMEDIATELY
+
     runBot();
 
 
-    // Every 30 minutes
+    // EVERY 30 MINUTES
+
     setInterval(
       runBot,
       BOT_INTERVAL
