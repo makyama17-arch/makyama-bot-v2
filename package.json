@@ -1,14 +1,12 @@
 {
-  "name": "makyama-opportunities-bot",
-  "version": "3.0.0",
-  "description": "MAKYAMA Global Opportunities Bot",
+  "name": "makyama-bot-v4",
+  "version": "4.0.0",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
     "express": "^4.21.2",
-    "firebase-admin": "^13.0.2",
-    "rss-parser": "^3.13.0"
+    "firebase-admin": "^13.0.2"
   }
 }
