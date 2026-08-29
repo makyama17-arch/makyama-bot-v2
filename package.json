@@ -1,7 +1,7 @@
 {
-  "name": "makyama-bot-v7",
-  "version": "7.0.0",
-  "description": "MAKYAMA Global Opportunities Bot - Jobs, Scholarships, Grants, Events and Global News",
+  "name": "makyama-global-opportunities",
+  "version": "8.0.0",
+  "description": "MAKYAMA Global Opportunities Platform",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
@@ -11,6 +11,6 @@
   },
   "dependencies": {
     "express": "^4.21.2",
-    "firebase-admin": "^13.0.1"
+    "firebase-admin": "^13.0.2"
   }
 }
