@@ -1,20 +1,25 @@
 // ============================================================
-// MAKYAMA GLOBAL OPPORTUNITIES BOT V8
-// Global Countries + Education + Jobs + Grants + Events + News
+// MAKYAMA GLOBAL OPPORTUNITIES PLATFORM V8
+// Jobs + Education + Scholarships + Grants + Events + News
+// Global Countries + Official Publish Dates + Admin + Ads
 // ============================================================
 
 const express = require("express");
 const admin = require("firebase-admin");
+const crypto = require("crypto");
 
 const app = express();
 const PORT = process.env.PORT || 10000;
+
+app.use(express.json({ limit: "2mb" }));
+app.use(express.urlencoded({ extended: true }));
 
 // ============================================================
 // FIREBASE
 // ============================================================
 
 if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
-  console.error("❌ FIREBASE_SERVICE_ACCOUNT is missing!");
+  console.error("❌ FIREBASE_SERVICE_ACCOUNT is missing");
   process.exit(1);
 }
 
@@ -31,6 +36,7 @@ try {
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
+
   databaseURL:
     process.env.FIREBASE_DATABASE_URL ||
     "https://makyama-e5e89-default-rtdb.firebaseio.com/"
@@ -39,119 +45,45 @@ admin.initializeApp({
 const db = admin.database();
 
 // ============================================================
-// SERVER
+// CONFIG
 // ============================================================
 
-app.use(express.json());
+const CHECK_INTERVAL = 30 * 60 * 1000;
 
-app.get("/", (req, res) => {
-  res.json({
-    status: "online",
-    name: "MAKYAMA Global Opportunities Bot",
-    version: "8.0.0",
-    mode: "GLOBAL",
-    language: "English",
-    message: "MAKYAMA Bot is running successfully"
-  });
-});
+const ADMIN_USERNAME =
+  process.env.ADMIN_USERNAME || "admin";
+
+const ADMIN_PASSWORD =
+  process.env.ADMIN_PASSWORD || "ChangeThisPassword123!";
+
+const sessions = new Map();
+
+const USER_AGENT =
+  "MAKYAMA Global Opportunities Bot/8.0 (+https://makyama.vercel.app)";
+
+// ============================================================
+// BASIC SERVER
+// ============================================================
 
 app.get("/health", (req, res) => {
   res.json({
     ok: true,
-    service: "MAKYAMA GLOBAL BOT",
+    service: "MAKYAMA GLOBAL OPPORTUNITIES",
     version: "8.0.0",
     time: new Date().toISOString()
   });
 });
 
-app.get("/api/stats", async (req, res) => {
-  try {
-    const snap = await db.ref("opportunities").once("value");
-
-    let total = 0;
-    let education = 0;
-    let jobs = 0;
-    let grants = 0;
-    let events = 0;
-    let news = 0;
-
-    if (snap.exists()) {
-      snap.forEach(child => {
-        const item = child.val();
-
-        if (!item || item.active === false) return;
-
-        total++;
-
-        const category =
-          String(item.category || "").toLowerCase();
-
-        if (
-          category.includes("scholar") ||
-          category.includes("education") ||
-          category.includes("fellowship")
-        ) {
-          education++;
-        }
-
-        if (
-          category.includes("job") ||
-          category.includes("internship")
-        ) {
-          jobs++;
-        }
-
-        if (category.includes("grant")) {
-          grants++;
-        }
-
-        if (category.includes("event")) {
-          events++;
-        }
-
-        if (category.includes("news")) {
-          news++;
-        }
-      });
-    }
-
-    res.json({
-      total,
-      education,
-      jobs,
-      grants,
-      events,
-      news
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: error.message
-    });
-  }
-});
-
-app.listen(PORT, () => {
-  console.log("==========================================");
-  console.log("🚀 MAKYAMA GLOBAL OPPORTUNITIES BOT V8");
-  console.log("==========================================");
-  console.log("Port:", PORT);
-  console.log("Interval: 30 minutes");
-  console.log("Default language: English");
-  console.log("Mode: GLOBAL");
-  console.log("==========================================");
+app.get("/", (req, res) => {
+  res.json({
+    status: "online",
+    name: "MAKYAMA Global Opportunities",
+    version: "8.0.0"
+  });
 });
 
 // ============================================================
-// CONSTANTS
-// ============================================================
-
-const CHECK_INTERVAL = 30 * 60 * 1000;
-
-const USER_AGENT =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36";
-
-// ============================================================
-// FETCH JSON
+// FETCH HELPERS
 // ============================================================
 
 async function fetchJSON(url, options = {}) {
@@ -168,12 +100,8 @@ async function fetchJSON(url, options = {}) {
     throw new Error(`HTTP ${response.status}`);
   }
 
-  return await response.json();
+  return response.json();
 }
-
-// ============================================================
-// FETCH TEXT
-// ============================================================
 
 async function fetchText(url, options = {}) {
   const response = await fetch(url, {
@@ -190,25 +118,23 @@ async function fetchText(url, options = {}) {
     throw new Error(`HTTP ${response.status}`);
   }
 
-  return await response.text();
+  return response.text();
 }
 
 // ============================================================
-// URL VALIDATION
+// URL
 // ============================================================
 
 function validURL(value) {
-  if (!value || typeof value !== "string") {
-    return false;
-  }
+  if (!value || typeof value !== "string") return false;
 
   try {
-    const url = new URL(value.trim());
+    const u = new URL(value.trim());
 
     return (
-      (url.protocol === "http:" ||
-        url.protocol === "https:") &&
-      !!url.hostname
+      (u.protocol === "http:" ||
+        u.protocol === "https:") &&
+      !!u.hostname
     );
   } catch {
     return false;
@@ -216,301 +142,277 @@ function validURL(value) {
 }
 
 function cleanURL(value) {
-  if (!value || typeof value !== "string") {
-    return "";
-  }
+  if (!value || typeof value !== "string") return "";
 
-  const url = value.trim();
+  const value2 = value.trim();
 
-  return validURL(url) ? url : "";
+  return validURL(value2) ? value2 : "";
 }
 
 // ============================================================
-// TEXT CLEANING
+// COUNTRY LIST
 // ============================================================
 
-function cleanText(value) {
-  if (!value) return "";
-
-  return String(value)
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function limitText(value, max = 10000) {
-  const text = cleanText(value);
-
-  if (text.length <= max) {
-    return text;
-  }
-
-  return text.slice(0, max) + "...";
-}
+const COUNTRIES = [
+  "Afghanistan",
+  "Albania",
+  "Algeria",
+  "Andorra",
+  "Angola",
+  "Antigua and Barbuda",
+  "Argentina",
+  "Armenia",
+  "Australia",
+  "Austria",
+  "Azerbaijan",
+  "Bahamas",
+  "Bahrain",
+  "Bangladesh",
+  "Barbados",
+  "Belarus",
+  "Belgium",
+  "Belize",
+  "Benin",
+  "Bhutan",
+  "Bolivia",
+  "Bosnia and Herzegovina",
+  "Botswana",
+  "Brazil",
+  "Brunei",
+  "Bulgaria",
+  "Burkina Faso",
+  "Burundi",
+  "Cabo Verde",
+  "Cambodia",
+  "Cameroon",
+  "Canada",
+  "Central African Republic",
+  "Chad",
+  "Chile",
+  "China",
+  "Colombia",
+  "Comoros",
+  "Congo",
+  "Costa Rica",
+  "Croatia",
+  "Cuba",
+  "Cyprus",
+  "Czechia",
+  "Democratic Republic of the Congo",
+  "Denmark",
+  "Djibouti",
+  "Dominica",
+  "Dominican Republic",
+  "Ecuador",
+  "Egypt",
+  "El Salvador",
+  "Equatorial Guinea",
+  "Eritrea",
+  "Estonia",
+  "Eswatini",
+  "Ethiopia",
+  "Fiji",
+  "Finland",
+  "France",
+  "Gabon",
+  "Gambia",
+  "Georgia",
+  "Germany",
+  "Ghana",
+  "Greece",
+  "Grenada",
+  "Guatemala",
+  "Guinea",
+  "Guinea-Bissau",
+  "Guyana",
+  "Haiti",
+  "Honduras",
+  "Hungary",
+  "Iceland",
+  "India",
+  "Indonesia",
+  "Iran",
+  "Iraq",
+  "Ireland",
+  "Israel",
+  "Italy",
+  "Ivory Coast",
+  "Jamaica",
+  "Japan",
+  "Jordan",
+  "Kazakhstan",
+  "Kenya",
+  "Kiribati",
+  "Kuwait",
+  "Kyrgyzstan",
+  "Laos",
+  "Latvia",
+  "Lebanon",
+  "Lesotho",
+  "Liberia",
+  "Libya",
+  "Liechtenstein",
+  "Lithuania",
+  "Luxembourg",
+  "Madagascar",
+  "Malawi",
+  "Malaysia",
+  "Maldives",
+  "Mali",
+  "Malta",
+  "Marshall Islands",
+  "Mauritania",
+  "Mauritius",
+  "Mexico",
+  "Micronesia",
+  "Moldova",
+  "Monaco",
+  "Mongolia",
+  "Montenegro",
+  "Morocco",
+  "Mozambique",
+  "Myanmar",
+  "Namibia",
+  "Nauru",
+  "Nepal",
+  "Netherlands",
+  "New Zealand",
+  "Nicaragua",
+  "Niger",
+  "Nigeria",
+  "North Korea",
+  "North Macedonia",
+  "Norway",
+  "Oman",
+  "Pakistan",
+  "Palau",
+  "Palestine",
+  "Panama",
+  "Papua New Guinea",
+  "Paraguay",
+  "Peru",
+  "Philippines",
+  "Poland",
+  "Portugal",
+  "Qatar",
+  "Romania",
+  "Russia",
+  "Rwanda",
+  "Saint Kitts and Nevis",
+  "Saint Lucia",
+  "Saint Vincent and the Grenadines",
+  "Samoa",
+  "San Marino",
+  "Sao Tome and Principe",
+  "Saudi Arabia",
+  "Senegal",
+  "Serbia",
+  "Seychelles",
+  "Sierra Leone",
+  "Singapore",
+  "Slovakia",
+  "Slovenia",
+  "Solomon Islands",
+  "Somalia",
+  "South Africa",
+  "South Korea",
+  "South Sudan",
+  "Spain",
+  "Sri Lanka",
+  "Sudan",
+  "Suriname",
+  "Sweden",
+  "Switzerland",
+  "Syria",
+  "Taiwan",
+  "Tajikistan",
+  "Tanzania",
+  "Thailand",
+  "Timor-Leste",
+  "Togo",
+  "Tonga",
+  "Trinidad and Tobago",
+  "Tunisia",
+  "Turkey",
+  "Turkmenistan",
+  "Tuvalu",
+  "Uganda",
+  "Ukraine",
+  "United Arab Emirates",
+  "United Kingdom",
+  "United States",
+  "Uruguay",
+  "Uzbekistan",
+  "Vanuatu",
+  "Vatican City",
+  "Venezuela",
+  "Vietnam",
+  "Yemen",
+  "Zambia",
+  "Zimbabwe"
+].sort();
 
 // ============================================================
-// COUNTRY NORMALIZATION
+// COUNTRY ALIASES
 // ============================================================
 
 const COUNTRY_MAP = {
-  afghanistan: "Afghanistan",
-  albania: "Albania",
-  algeria: "Algeria",
-  andorra: "Andorra",
-  angola: "Angola",
-  antigua: "Antigua and Barbuda",
-  argentina: "Argentina",
-  armenia: "Armenia",
-  australia: "Australia",
-  austria: "Austria",
-  azerbaijan: "Azerbaijan",
-
-  bahamas: "Bahamas",
-  bahrain: "Bahrain",
-  bangladesh: "Bangladesh",
-  barbados: "Barbados",
-  belarus: "Belarus",
-  belgium: "Belgium",
-  belize: "Belize",
-  benin: "Benin",
-  bhutan: "Bhutan",
-  bolivia: "Bolivia",
-  bosnia: "Bosnia and Herzegovina",
-  botswana: "Botswana",
-  brazil: "Brazil",
-  brunei: "Brunei",
-  bulgaria: "Bulgaria",
-  burkina: "Burkina Faso",
-  burundi: "Burundi",
-
-  cambodia: "Cambodia",
-  cameroon: "Cameroon",
-  canada: "Canada",
-  chad: "Chad",
-  chile: "Chile",
-  china: "China",
-  colombia: "Colombia",
-  comoros: "Comoros",
-  congo: "Congo",
-  croatia: "Croatia",
-  cuba: "Cuba",
-  cyprus: "Cyprus",
-  czechia: "Czech Republic",
-
-  denmark: "Denmark",
-  djibouti: "Djibouti",
-  dominica: "Dominica",
-  "dominican republic": "Dominican Republic",
-
-  ecuador: "Ecuador",
-  egypt: "Egypt",
-  "el salvador": "El Salvador",
-  eritrea: "Eritrea",
-  estonia: "Estonia",
-  eswatini: "Eswatini",
-  ethiopia: "Ethiopia",
-
-  fiji: "Fiji",
-  finland: "Finland",
-  france: "France",
-
-  gabon: "Gabon",
-  gambia: "Gambia",
-  georgia: "Georgia",
-  germany: "Germany",
-  ghana: "Ghana",
-  greece: "Greece",
-  grenada: "Grenada",
-  guatemala: "Guatemala",
-  guinea: "Guinea",
-  guyana: "Guyana",
-
-  haiti: "Haiti",
-  honduras: "Honduras",
-  hungary: "Hungary",
-
-  iceland: "Iceland",
-  india: "India",
-  indonesia: "Indonesia",
-  iran: "Iran",
-  iraq: "Iraq",
-  ireland: "Ireland",
-  israel: "Israel",
-  italy: "Italy",
-  "ivory coast": "Côte d'Ivoire",
-
-  jamaica: "Jamaica",
-  japan: "Japan",
-  jordan: "Jordan",
-
-  kazakhstan: "Kazakhstan",
-  kenya: "Kenya",
-  kiribati: "Kiribati",
-  kuwait: "Kuwait",
-  kyrgyzstan: "Kyrgyzstan",
-
-  laos: "Laos",
-  latvia: "Latvia",
-  lebanon: "Lebanon",
-  lesotho: "Lesotho",
-  liberia: "Liberia",
-  libya: "Libya",
-  liechtenstein: "Liechtenstein",
-  lithuania: "Lithuania",
-  luxembourg: "Luxembourg",
-
-  madagascar: "Madagascar",
-  malawi: "Malawi",
-  malaysia: "Malaysia",
-  maldives: "Maldives",
-  mali: "Mali",
-  malta: "Malta",
-  mauritania: "Mauritania",
-  mauritius: "Mauritius",
-  mexico: "Mexico",
-  micronesia: "Micronesia",
-  moldova: "Moldova",
-  monaco: "Monaco",
-  mongolia: "Mongolia",
-  montenegro: "Montenegro",
-  morocco: "Morocco",
-  mozambique: "Mozambique",
-  myanmar: "Myanmar",
-
-  namibia: "Namibia",
-  nauru: "Nauru",
-  nepal: "Nepal",
-  netherlands: "Netherlands",
-  "new zealand": "New Zealand",
-  nicaragua: "Nicaragua",
-  niger: "Niger",
-  nigeria: "Nigeria",
-  "north korea": "North Korea",
-  "north macedonia": "North Macedonia",
-  norway: "Norway",
-
-  oman: "Oman",
-
-  pakistan: "Pakistan",
-  palau: "Palau",
-  panama: "Panama",
-  "papua new guinea": "Papua New Guinea",
-  paraguay: "Paraguay",
-  peru: "Peru",
-  philippines: "Philippines",
-  poland: "Poland",
-  portugal: "Portugal",
-
-  qatar: "Qatar",
-
-  romania: "Romania",
-  russia: "Russia",
-  rwanda: "Rwanda",
-
-  samoa: "Samoa",
-  "san marino": "San Marino",
-  "saudi arabia": "Saudi Arabia",
-  senegal: "Senegal",
-  serbia: "Serbia",
-  seychelles: "Seychelles",
-  "sierra leone": "Sierra Leone",
-  singapore: "Singapore",
-  slovakia: "Slovakia",
-  slovenia: "Slovenia",
-  somalia: "Somalia",
-  "south africa": "South Africa",
-  "south korea": "South Korea",
-  "south sudan": "South Sudan",
-  spain: "Spain",
-  "sri lanka": "Sri Lanka",
-  sudan: "Sudan",
-  suriname: "Suriname",
-  sweden: "Sweden",
-  switzerland: "Switzerland",
-  syria: "Syria",
-
-  taiwan: "Taiwan",
-  tajikistan: "Tajikistan",
-  tanzania: "Tanzania",
-  thailand: "Thailand",
-  "timor leste": "Timor-Leste",
-  togo: "Togo",
-  tonga: "Tonga",
-  "trinidad and tobago": "Trinidad and Tobago",
-  tunisia: "Tunisia",
-  turkey: "Türkiye",
-  turkmenistan: "Turkmenistan",
-  tuvalu: "Tuvalu",
-
-  uganda: "Uganda",
-  ukraine: "Ukraine",
-  "united arab emirates": "United Arab Emirates",
-  "united kingdom": "United Kingdom",
-  "united states": "United States",
   usa: "United States",
-  uruguay: "Uruguay",
-  uzbekistan: "Uzbekistan",
+  us: "United States",
+  "united states of america": "United States",
 
-  vanuatu: "Vanuatu",
-  "vatican city": "Vatican City",
-  venezuela: "Venezuela",
-  vietnam: "Vietnam",
-
-  yemen: "Yemen",
-
-  zambia: "Zambia",
-  zimbabwe: "Zimbabwe",
+  uk: "United Kingdom",
+  britain: "United Kingdom",
 
   tz: "Tanzania",
+  "united republic of tanzania": "Tanzania",
+
   ke: "Kenya",
   ug: "Uganda",
   rw: "Rwanda",
-  uk: "United Kingdom",
-  us: "United States"
+
+  "south korea": "South Korea",
+  korea: "South Korea",
+
+  "south africa": "South Africa",
+
+  "ivory coast": "Ivory Coast",
+  "cote d'ivoire": "Ivory Coast"
 };
 
-function normalizeCountry(country) {
-  if (!country) {
-    return "International";
+function normalizeCountry(value) {
+  if (!value) return "International";
+
+  const raw = String(value).trim();
+
+  const key = raw.toLowerCase();
+
+  if (COUNTRY_MAP[key]) {
+    return COUNTRY_MAP[key];
   }
 
-  const value = String(country)
-    .trim()
-    .toLowerCase();
+  const exact = COUNTRIES.find(
+    c => c.toLowerCase() === key
+  );
 
-  if (COUNTRY_MAP[value]) {
-    return COUNTRY_MAP[value];
-  }
-
-  return String(country).trim();
+  return exact || raw;
 }
 
-// ============================================================
-// DETECT COUNTRY
-// ============================================================
-
 function detectCountry(text) {
-  if (!text) {
-    return "International";
-  }
+  if (!text) return "International";
 
   const value = String(text).toLowerCase();
 
-  for (const [key, country] of Object.entries(
+  for (const country of COUNTRIES) {
+    if (value.includes(country.toLowerCase())) {
+      return country;
+    }
+  }
+
+  for (const [alias, country] of Object.entries(
     COUNTRY_MAP
   )) {
-    const regex = new RegExp(
-      `(^|[^a-z])${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z]|$)`,
-      "i"
-    );
-
-    if (regex.test(value)) {
+    if (value.includes(alias)) {
       return country;
     }
   }
@@ -522,71 +424,75 @@ function detectCountry(text) {
 // CATEGORY
 // ============================================================
 
-function normalizeCategory(category) {
-  if (!category) {
-    return "Opportunity";
-  }
-
-  const value = String(category).toLowerCase();
+function normalizeCategory(value) {
+  const text = String(value || "")
+    .toLowerCase()
+    .trim();
 
   if (
-    value.includes("scholar") ||
-    value.includes("fellowship") ||
-    value.includes("education") ||
-    value.includes("study") ||
-    value.includes("student")
+    text.includes("job") ||
+    text.includes("career") ||
+    text.includes("employment") ||
+    text.includes("work")
+  ) {
+    return "Work Opportunities";
+  }
+
+  if (
+    text.includes("scholar") ||
+    text.includes("fellowship")
+  ) {
+    return "Scholarships";
+  }
+
+  if (
+    text.includes("education") ||
+    text.includes("university") ||
+    text.includes("study") ||
+    text.includes("course")
   ) {
     return "Education";
   }
 
   if (
-    value.includes("grant") ||
-    value.includes("funding") ||
-    value.includes("award")
+    text.includes("grant") ||
+    text.includes("funding")
   ) {
-    return "Grant";
+    return "Grants";
   }
 
   if (
-    value.includes("job") ||
-    value.includes("career") ||
-    value.includes("employment") ||
-    value.includes("vacancy")
+    text.includes("event") ||
+    text.includes("conference") ||
+    text.includes("summit")
   ) {
-    return "Work";
+    return "Events";
   }
 
   if (
-    value.includes("intern") ||
-    value.includes("trainee")
-  ) {
-    return "Internship";
-  }
-
-  if (
-    value.includes("event") ||
-    value.includes("conference") ||
-    value.includes("summit") ||
-    value.includes("meeting")
-  ) {
-    return "Event";
-  }
-
-  if (
-    value.includes("news") ||
-    value.includes("announcement")
+    text.includes("news") ||
+    text.includes("announcement")
   ) {
     return "News";
   }
 
-  if (
-    value.includes("competition") ||
-    value.includes("contest")
-  ) {
-    return "Competition";
+  return "Opportunity";
+}
+
+// ============================================================
+// OFFICIAL PUBLISH DATE
+// ============================================================
+
+function officialDate(value) {
+  if (!value) return null;
+
+  const date = new Date(value);
+
+  if (isNaN(date.getTime())) {
+    return null;
   }
 
-  return String(category).trim();
+  return date.toISOString();
 }
 
 // ============================================================
@@ -594,425 +500,174 @@ function normalizeCategory(category) {
 // ============================================================
 
 function makeID(title, url) {
-  return `${title}|${url}`
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .slice(0, 180);
+  return crypto
+    .createHash("sha256")
+    .update(`${title}|${url}`)
+    .digest("hex")
+    .slice(0, 32);
 }
 
 // ============================================================
-// DESCRIPTION BUILDER
-// ============================================================
-
-function buildDescription(data) {
-  const parts = [];
-
-  if (data.description) {
-    parts.push(cleanText(data.description));
-  }
-
-  if (data.about) {
-    parts.push(
-      "About: " + cleanText(data.about)
-    );
-  }
-
-  if (data.details) {
-    parts.push(
-      "Details: " + cleanText(data.details)
-    );
-  }
-
-  if (data.eligibility) {
-    parts.push(
-      "Eligibility: " +
-        cleanText(data.eligibility)
-    );
-  }
-
-  if (data.benefits) {
-    parts.push(
-      "Benefits: " +
-        cleanText(data.benefits)
-    );
-  }
-
-  if (data.requirements) {
-    parts.push(
-      "Requirements: " +
-        cleanText(data.requirements)
-    );
-  }
-
-  if (data.applicationInstructions) {
-    parts.push(
-      "Application: " +
-        cleanText(data.applicationInstructions)
-    );
-  }
-
-  return limitText(
-    parts.join("\n\n") ||
-      "No detailed description available.",
-    12000
-  );
-}
-
-// ============================================================
-// SAVE OPPORTUNITY
+// SAVE
 // ============================================================
 
 async function saveOpportunity(data) {
-  try {
-    const title = cleanText(data.title);
-    const url = cleanURL(data.url);
+  const title = String(data.title || "").trim();
 
-    if (!title) {
-      console.log(
-        "⚠️ Skipped item: missing title"
-      );
-      return false;
-    }
+  const url =
+    cleanURL(data.url) ||
+    cleanURL(data.detailsUrl) ||
+    cleanURL(data.applyUrl);
 
-    if (!url) {
-      console.log(
-        "⚠️ Skipped:",
-        title,
-        "— invalid URL"
-      );
-      return false;
-    }
-
-    const category =
-      normalizeCategory(data.category);
-
-    const country =
-      normalizeCountry(data.country);
-
-    const countries = Array.isArray(
-      data.countries
-    )
-      ? data.countries
-          .map(normalizeCountry)
-          .filter(Boolean)
-      : [country];
-
-    const id = makeID(title, url);
-
-    const opportunity = {
-      id,
-
-      title,
-
-      category,
-
-      country,
-
-      countries,
-
-      description:
-        buildDescription(data),
-
-      about:
-        limitText(
-          data.about ||
-            data.description ||
-            "",
-          10000
-        ),
-
-      eligibility:
-        limitText(
-          data.eligibility || "",
-          6000
-        ),
-
-      benefits:
-        limitText(
-          data.benefits || "",
-          6000
-        ),
-
-      requirements:
-        limitText(
-          data.requirements || "",
-          6000
-        ),
-
-      applicationInstructions:
-        limitText(
-          data.applicationInstructions ||
-            "",
-          6000
-        ),
-
-      organization:
-        cleanText(
-          data.organization ||
-            data.source ||
-            ""
-        ),
-
-      source:
-        cleanText(
-          data.source || "Unknown"
-        ),
-
-      sourceUrl: url,
-
-      detailsUrl:
-        cleanURL(data.detailsUrl) ||
-        url,
-
-      applyUrl:
-        cleanURL(data.applyUrl) ||
-        url,
-
-      playUrl:
-        cleanURL(data.playUrl) ||
-        url,
-
-      image:
-        cleanURL(data.image),
-
-      deadline:
-        data.deadline || "",
-
-      publishedAt:
-        data.publishedAt ||
-        Date.now(),
-
-      createdAt:
-        data.createdAt ||
-        Date.now(),
-
-      updatedAt:
-        Date.now(),
-
-      active: true,
-
-      views:
-        Number(data.views || 0),
-
-      shares:
-        Number(data.shares || 0)
-    };
-
-    const ref =
-      db.ref("opportunities").child(id);
-
-    const existing =
-      await ref.once("value");
-
-    if (existing.exists()) {
-      const old = existing.val() || {};
-
-      await ref.update({
-        ...opportunity,
-
-        createdAt:
-          old.createdAt ||
-          opportunity.createdAt,
-
-        views:
-          Number(old.views || 0),
-
-        shares:
-          Number(old.shares || 0)
-      });
-
-      console.log(
-        "🔄 UPDATED:",
-        title
-      );
-
-      return false;
-    }
-
-    await ref.set(opportunity);
-
-    console.log("");
-    console.log(
-      "✅ NEW OPPORTUNITY"
-    );
-    console.log(
-      "Title:",
-      title
-    );
-    console.log(
-      "Category:",
-      category
-    );
-    console.log(
-      "Country:",
-      country
-    );
-    console.log(
-      "Source:",
-      opportunity.source
-    );
-    console.log(
-      "URL:",
-      url
-    );
-
-    return true;
-  } catch (error) {
-    console.error(
-      "❌ SAVE ERROR:",
-      error.message
-    );
-
+  if (!title) {
+    console.log("⚠️ Missing title");
     return false;
   }
-}
 
-// ============================================================
-// GRANTS.GOV
-// ============================================================
+  if (!url) {
+    console.log(
+      "⚠️ SKIPPED — no valid URL:",
+      title
+    );
+    return false;
+  }
 
-async function checkGrantsGov() {
-  console.log(
-    "🇺🇸 Checking Grants.gov..."
+  const id = makeID(title, url);
+
+  const country = normalizeCountry(
+    data.country
   );
 
-  try {
-    const data =
-      await fetchJSON(
-        "https://api.grants.gov/v1/api/search2",
-        {
-          method: "POST",
+  const countries =
+    Array.isArray(data.countries) &&
+    data.countries.length
+      ? [...new Set(
+          data.countries.map(normalizeCountry)
+        )]
+      : [country];
 
-          headers: {
-            "Content-Type":
-              "application/json"
-          },
+  const publishedAt =
+    officialDate(data.publishedAt);
 
-          body: JSON.stringify({
-            rows: 50,
-            startRecordNum: 0,
-            keyword: ""
-          })
-        }
-      );
+  const updatedAtSource =
+    officialDate(data.updatedAtSource);
 
-    const opportunities =
-      data?.oppHits ||
-      data?.data?.oppHits ||
-      [];
+  const ref = db
+    .ref("opportunities")
+    .child(id);
 
-    console.log(
-      "📦 Grants.gov:",
-      opportunities.length
-    );
+  const oldSnap = await ref.once("value");
 
-    let count = 0;
+  const old = oldSnap.exists()
+    ? oldSnap.val()
+    : {};
 
-    for (
-      const item of opportunities
-    ) {
-      const title =
-        item.oppTitle ||
-        item.title ||
-        "Untitled Grant";
+  const item = {
+    id,
 
-      const id =
-        item.id ||
-        item.oppId ||
-        item.opportunityId;
+    title,
 
-      if (!id) continue;
+    description:
+      String(
+        data.description || ""
+      ).trim() ||
+      "No detailed description is available from the source.",
 
-      const url =
-        `https://www.grants.gov/search-results-detail/${id}`;
+    category:
+      normalizeCategory(data.category),
 
-      if (!validURL(url)) {
-        continue;
-      }
+    country,
 
-      const detected =
-        detectCountry(
-          `${item.agencyName || ""} ${
-            item.oppTitle || ""
-          }`
-        );
+    countries,
 
-      const country =
-        detected === "International"
-          ? "United States"
-          : detected;
+    source:
+      String(data.source || "Official Source"),
 
-      const saved =
-        await saveOpportunity({
-          title,
+    url,
 
-          description:
-            item.description ||
-            item.oppNumber ||
-            "Grant opportunity available through Grants.gov.",
+    detailsUrl:
+      cleanURL(data.detailsUrl) || url,
 
-          category: "Grant",
+    applyUrl:
+      cleanURL(data.applyUrl) || url,
 
-          country,
+    playUrl:
+      cleanURL(data.playUrl) || url,
 
-          organization:
-            item.agencyName ||
-            "Grants.gov",
+    image:
+      cleanURL(data.image),
 
-          source:
-            "Grants.gov",
+    deadline:
+      data.deadline || "",
 
-          url,
+    // IMPORTANT:
+    // This is ONLY the source publication date.
+    publishedAt,
 
-          sourceUrl: url,
+    // Optional official source update date.
+    updatedAtSource,
 
-          detailsUrl: url,
+    // Internal database timestamp.
+    createdAt:
+      old.createdAt || Date.now(),
 
-          applyUrl: url,
+    updatedAt:
+      Date.now(),
 
-          playUrl: url,
+    active: true,
 
-          deadline:
-            item.closeDate ||
-            item.closeDateString ||
-            "",
+    views:
+      Number(old.views || 0),
 
-          publishedAt:
-            item.openDate ||
-            Date.now()
-        });
+    shares:
+      Number(old.shares || 0)
+  };
 
-      if (saved) count++;
-    }
+  await ref.set(item);
 
-    return count;
-  } catch (error) {
-    console.error(
-      "❌ Grants.gov ERROR:",
-      error.message
-    );
+  console.log(
+    oldSnap.exists()
+      ? "🔄 UPDATED:"
+      : "✅ NEW:",
+    title
+  );
 
-    return 0;
-  }
+  console.log(
+    "   Category:",
+    item.category
+  );
+
+  console.log(
+    "   Country:",
+    item.country
+  );
+
+  console.log(
+    "   Published:",
+    item.publishedAt || "UNAVAILABLE"
+  );
+
+  console.log(
+    "   Source:",
+    item.source
+  );
+
+  return !oldSnap.exists();
 }
 
 // ============================================================
-// REMOTIVE
+// REMOTIVE JOBS
 // ============================================================
 
 async function checkRemotive() {
-  console.log(
-    "🌍 Checking Remotive Global Jobs..."
-  );
+  console.log("💼 Checking Remotive jobs...");
 
   try {
-    const data =
-      await fetchJSON(
-        "https://remotive.com/api/remote-jobs"
-      );
+    const data = await fetchJSON(
+      "https://remotive.com/api/remote-jobs"
+    );
 
-    const jobs =
-      data?.jobs || [];
+    const jobs = data.jobs || [];
 
     console.log(
       "📦 Remotive:",
@@ -1021,75 +676,61 @@ async function checkRemotive() {
 
     let count = 0;
 
-    for (
-      const job of jobs.slice(0, 50)
-    ) {
-      const url =
-        cleanURL(job.url);
+    for (const job of jobs.slice(0, 100)) {
+      const url = cleanURL(job.url);
 
       if (!url) continue;
 
-      const locationText =
+      const location =
         job.candidate_required_location ||
         "";
 
-      const country =
+      let country =
         detectCountry(
-          locationText
+          `${location} ${job.title || ""}`
         );
 
-      const description =
-        cleanText(
+      // Remote jobs without a country are still global.
+      if (!country) {
+        country = "International";
+      }
+
+      const saved = await saveOpportunity({
+        title: job.title,
+
+        description:
           job.description ||
-          "Remote job opportunity."
-        );
+          "Remote work opportunity.",
 
-      const saved =
-        await saveOpportunity({
-          title:
-            job.title,
+        category: "Work Opportunities",
 
-          description,
+        country,
 
-          about:
-            description,
+        countries:
+          country === "International"
+            ? ["International"]
+            : [country],
 
-          category:
-            "Work",
+        source: "Remotive",
 
-          country,
+        url,
 
-          countries:
-            country === "International"
-              ? ["International"]
-              : [country],
+        detailsUrl: url,
 
-          organization:
-            job.company_name ||
-            "Remotive",
+        applyUrl: url,
 
-          source:
-            "Remotive",
+        playUrl: url,
 
-          url,
+        image:
+          cleanURL(job.company_logo),
 
-          sourceUrl: url,
+        // REAL Remotive publication date
+        publishedAt:
+          job.publication_date || null,
 
-          detailsUrl: url,
-
-          applyUrl: url,
-
-          playUrl: url,
-
-          image:
-            cleanURL(
-              job.company_logo
-            ),
-
-          publishedAt:
-            job.publication_date ||
-            Date.now()
-        });
+        updatedAtSource:
+          job.updated_at || null
+      });
 
       if (saved) count++;
     }
@@ -1097,7 +738,7 @@ async function checkRemotive() {
     return count;
   } catch (error) {
     console.error(
-      "❌ Remotive ERROR:",
+      "❌ Remotive:",
       error.message
     );
 
@@ -1106,378 +747,223 @@ async function checkRemotive() {
 }
 
 // ============================================================
-// INTERNATIONAL OFFICIAL SOURCES
+// GRANTS.GOV
 // ============================================================
 
-async function checkInternationalSources() {
+async function checkGrantsGov() {
+  console.log("💰 Checking Grants.gov...");
+
+  try {
+    const data = await fetchJSON(
+      "https://api.grants.gov/v1/api/search2",
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json"
+        },
+
+        body: JSON.stringify({
+          rows: 50,
+          startRecordNum: 0,
+          keyword: ""
+        })
+      }
+    );
+
+    const grants =
+      data?.oppHits ||
+      data?.data?.oppHits ||
+      [];
+
+    console.log(
+      "📦 Grants:",
+      grants.length
+    );
+
+    let count = 0;
+
+    for (const grant of grants) {
+      const id =
+        grant.id ||
+        grant.oppId ||
+        grant.opportunityId;
+
+      if (!id) continue;
+
+      const url =
+        `https://www.grants.gov/search-results-detail/${id}`;
+
+      if (!validURL(url)) continue;
+
+      const title =
+        grant.oppTitle ||
+        grant.title ||
+        "Grant Opportunity";
+
+      const description =
+        grant.description ||
+        grant.oppNumber ||
+        "Official grant opportunity published on Grants.gov.";
+
+      const saved = await saveOpportunity({
+        title,
+
+        description,
+
+        category: "Grants",
+
+        country: "United States",
+
+        countries: [
+          "United States"
+        ],
+
+        source: "Grants.gov",
+
+        url,
+
+        detailsUrl: url,
+
+        applyUrl: url,
+
+        playUrl: url,
+
+        // Prefer actual posting date.
+        publishedAt:
+          grant.postingDate ||
+          grant.postDate ||
+          grant.openDate ||
+          null,
+
+        deadline:
+          grant.closeDate ||
+          grant.closeDateString ||
+          ""
+      });
+
+      if (saved) count++;
+    }
+
+    return count;
+  } catch (error) {
+    console.error(
+      "❌ Grants.gov:",
+      error.message
+    );
+
+    return 0;
+  }
+}
+
+// ============================================================
+// GLOBAL OFFICIAL SOURCES
+// ============================================================
+
+async function saveGlobalSources() {
   console.log(
-    "🌐 Checking International Sources..."
+    "🌍 Checking global official sources..."
   );
 
   const sources = [
     {
-      name: "UN Careers",
-      category: "Work",
-      country: "International",
-      url: "https://careers.un.org/"
-    },
+      title:
+        "United Nations — Careers",
 
-    {
-      name: "World Bank Careers",
-      category: "Work",
-      country: "International",
+      description:
+        "Official United Nations careers and employment opportunities.",
+
+      category:
+        "Work Opportunities",
+
+      source:
+        "United Nations",
+
       url:
-        "https://www.worldbank.org/en/about/careers"
+        "https://careers.un.org/"
     },
 
     {
-      name: "UNICEF Careers",
-      category: "Work",
-      country: "International",
+      title:
+        "UNICEF — Careers",
+
+      description:
+        "Official UNICEF jobs and career opportunities.",
+
+      category:
+        "Work Opportunities",
+
+      source:
+        "UNICEF",
+
       url:
         "https://jobs.unicef.org/"
     },
 
     {
-      name: "WHO Careers",
-      category: "Work",
-      country: "International",
+      title:
+        "WHO — Careers",
+
+      description:
+        "Official World Health Organization career opportunities.",
+
+      category:
+        "Work Opportunities",
+
+      source:
+        "World Health Organization",
+
       url:
         "https://www.who.int/careers"
     },
 
     {
-      name: "African Union Careers",
-      category: "Work",
-      country: "International",
+      title:
+        "World Bank — Careers",
+
+      description:
+        "Official World Bank career opportunities.",
+
+      category:
+        "Work Opportunities",
+
+      source:
+        "World Bank",
+
+      url:
+        "https://www.worldbank.org/en/about/careers"
+    },
+
+    {
+      title:
+        "African Union — Careers",
+
+      description:
+        "Official African Union career and professional opportunities.",
+
+      category:
+        "Work Opportunities",
+
+      source:
+        "African Union",
+
       url:
         "https://au.int/en/careers"
-    }
-  ];
-
-  let total = 0;
-
-  for (
-    const source of sources
-  ) {
-    try {
-      const saved =
-        await saveOpportunity({
-          title:
-            `${source.name} — Opportunities`,
-
-          description:
-            `Official ${source.name} page where users can view current opportunities, vacancies, programmes and announcements.`,
-
-          about:
-            `This is an official ${source.name} source.`,
-
-          category:
-            source.category,
-
-          country:
-            source.country,
-
-          countries:
-            ["International"],
-
-          organization:
-            source.name,
-
-          source:
-            source.name,
-
-          url:
-            source.url,
-
-          sourceUrl:
-            source.url,
-
-          detailsUrl:
-            source.url,
-
-          applyUrl:
-            source.url,
-
-          playUrl:
-            source.url,
-
-          publishedAt:
-            Date.now()
-        });
-
-      if (saved) total++;
-    } catch (error) {
-      console.error(
-        `❌ ${source.name}:`,
-        error.message
-      );
-    }
-  }
-
-  console.log(
-    "📦 International sources:",
-    total
-  );
-
-  return total;
-}
-
-// ============================================================
-// HESLB TANZANIA
-// ============================================================
-
-async function checkHESLB() {
-  console.log(
-    "🌍 Checking HESLB..."
-  );
-
-  const opportunities = [
-    {
-      title:
-        "HESLB Online Application",
-
-      description:
-        "Official HESLB information and online application resources for higher education financing in Tanzania.",
-
-      category:
-        "Education",
-
-      url:
-        "https://www.heslb.go.tz/"
     },
 
     {
       title:
-        "HESLB Scholarships and Loans",
+        "United Nations — Events",
 
       description:
-        "Official HESLB information about scholarships, student loans and higher education financing.",
+        "Official United Nations events, meetings and international activities.",
 
       category:
-        "Education",
+        "Events",
 
-      url:
-        "https://www.heslb.go.tz/"
-    },
-
-    {
-      title:
-        "HESLB Loan Issuance",
-
-      description:
-        "Official HESLB information about loan issuance and student financing.",
-
-      category:
-        "Education",
-
-      url:
-        "https://www.heslb.go.tz/"
-    },
-
-    {
-      title:
-        "HESLB Loan Repayment",
-
-      description:
-        "Official information about HESLB loan repayment procedures.",
-
-      category:
-        "Education",
-
-      url:
-        "https://www.heslb.go.tz/"
-    },
-
-    {
-      title:
-        "HESLB Application Guidelines",
-
-      description:
-        "Official HESLB application guidelines and announcements.",
-
-      category:
-        "Education",
-
-      url:
-        "https://www.heslb.go.tz/"
-    }
-  ];
-
-  let count = 0;
-
-  for (
-    const item of opportunities
-  ) {
-    const saved =
-      await saveOpportunity({
-        title:
-          item.title,
-
-        description:
-          item.description,
-
-        about:
-          item.description,
-
-        category:
-          item.category,
-
-        country:
-          "Tanzania",
-
-        countries:
-          ["Tanzania"],
-
-        organization:
-          "HESLB",
-
-        source:
-          "HESLB Tanzania",
-
-        url:
-          item.url,
-
-        sourceUrl:
-          item.url,
-
-        detailsUrl:
-          item.url,
-
-        applyUrl:
-          item.url,
-
-        playUrl:
-          item.url
-      });
-
-    if (saved) count++;
-  }
-
-  console.log(
-    "📦 HESLB processed:",
-    count
-  );
-
-  return count;
-}
-
-// ============================================================
-// AJIRA / PSRS
-// ============================================================
-
-async function checkAjira() {
-  console.log(
-    "🌍 Checking Ajira / PSRS..."
-  );
-
-  const officialURL =
-    "https://www.ajira.go.tz/";
-
-  const opportunities = [
-    {
-      title:
-        "Ajira Portal — Tanzania Public Service Jobs",
-
-      description:
-        "Official Tanzania public service recruitment information and job vacancy resources.",
-
-      url:
-        officialURL
-    },
-
-    {
-      title:
-        "Public Service Recruitment Secretariat — Jobs",
-
-      description:
-        "Official public service recruitment information from Tanzania.",
-
-      url:
-        officialURL
-    }
-  ];
-
-  let count = 0;
-
-  for (
-    const item of opportunities
-  ) {
-    const saved =
-      await saveOpportunity({
-        title:
-          item.title,
-
-        description:
-          item.description,
-
-        about:
-          item.description,
-
-        category:
-          "Work",
-
-        country:
-          "Tanzania",
-
-        countries:
-          ["Tanzania"],
-
-        organization:
-          "Ajira / PSRS",
-
-        source:
-          "Ajira / PSRS",
-
-        url:
-          item.url,
-
-        sourceUrl:
-          item.url,
-
-        detailsUrl:
-          item.url,
-
-        applyUrl:
-          item.url,
-
-        playUrl:
-          item.url
-      });
-
-    if (saved) count++;
-  }
-
-  console.log(
-    "📦 Ajira / PSRS processed:",
-    count
-  );
-
-  return count;
-}
-
-// ============================================================
-// GLOBAL NEWS AND EVENTS
-// ============================================================
-
-async function checkGlobalEvents() {
-  console.log(
-    "📰 Checking Global News & Events..."
-  );
-
-  const events = [
-    {
-      title:
-        "United Nations — Global Events",
-
-      description:
-        "Official United Nations events, meetings, announcements and international activities.",
-
-      category:
-        "Event",
-
-      country:
-        "International",
+      source:
+        "United Nations",
 
       url:
         "https://www.un.org/en/events"
@@ -1485,16 +971,16 @@ async function checkGlobalEvents() {
 
     {
       title:
-        "World Health Organization — News",
+        "WHO — News",
 
       description:
-        "Official WHO news, announcements and global health information.",
+        "Official World Health Organization global news and announcements.",
 
       category:
         "News",
 
-      country:
-        "International",
+      source:
+        "World Health Organization",
 
       url:
         "https://www.who.int/news"
@@ -1505,13 +991,13 @@ async function checkGlobalEvents() {
         "World Bank — News",
 
       description:
-        "Official World Bank news, development updates and announcements.",
+        "Global development news and announcements from the World Bank.",
 
       category:
         "News",
 
-      country:
-        "International",
+      source:
+        "World Bank",
 
       url:
         "https://www.worldbank.org/en/news"
@@ -1519,16 +1005,16 @@ async function checkGlobalEvents() {
 
     {
       title:
-        "African Union — News & Events",
+        "African Union — News",
 
       description:
-        "Official African Union news, events and continental announcements.",
+        "Official African Union news and continental announcements.",
 
       category:
         "News",
 
-      country:
-        "International",
+      source:
+        "African Union",
 
       url:
         "https://au.int/en/news"
@@ -1537,328 +1023,573 @@ async function checkGlobalEvents() {
 
   let count = 0;
 
-  for (
-    const event of events
-  ) {
-    const saved =
-      await saveOpportunity({
-        title:
-          event.title,
+  for (const item of sources) {
+    // These source landing pages generally do not expose
+    // a single publication date for the page itself.
+    // Therefore publishedAt stays null instead of using Date.now().
 
-        description:
-          event.description,
+    const saved = await saveOpportunity({
+      ...item,
 
-        about:
-          event.description,
+      country: "International",
 
-        category:
-          event.category,
+      countries: [
+        "International"
+      ],
 
-        country:
-          event.country,
-
-        countries:
-          ["International"],
-
-        organization:
-          event.title,
-
-        source:
-          "Official Global Source",
-
-        url:
-          event.url,
-
-        sourceUrl:
-          event.url,
-
-        detailsUrl:
-          event.url,
-
-        applyUrl:
-          event.url,
-
-        playUrl:
-          event.url
-      });
+      publishedAt: null
+    });
 
     if (saved) count++;
   }
-
-  console.log(
-    "📦 Global news/events:",
-    count
-  );
 
   return count;
 }
 
 // ============================================================
-// REMOVE EXPIRED
+// HESLB
 // ============================================================
 
-async function removeExpired() {
+async function checkHESLB() {
   console.log(
-    "🧹 Checking expired opportunities..."
+    "🎓 Checking HESLB..."
   );
 
-  try {
-    const snap =
-      await db
-        .ref("opportunities")
-        .once("value");
+  const url =
+    "https://www.heslb.go.tz/";
 
-    if (!snap.exists()) {
-      console.log(
-        "🧹 Nothing to clean."
-      );
-      return;
-    }
+  return saveOpportunity({
+    title:
+      "HESLB — Official Student Loans and Scholarships",
 
-    const updates = {};
-    const now = Date.now();
+    description:
+      "Official Higher Education Students' Loans Board information, applications, guidelines and announcements.",
 
-    snap.forEach(child => {
-      const item =
-        child.val();
+    category:
+      "Scholarships",
 
-      if (!item) return;
+    country:
+      "Tanzania",
 
-      if (!item.deadline) return;
+    source:
+      "HESLB Tanzania",
 
-      const deadline =
-        new Date(
-          item.deadline
-        ).getTime();
+    url,
 
-      if (
-        !isNaN(deadline) &&
-        deadline < now
-      ) {
-        updates[
-          child.key
-        ] = null;
+    detailsUrl: url,
 
-        console.log(
-          "🗑️ Removing expired:",
-          item.title
-        );
-      }
-    });
+    applyUrl: url,
 
-    const keys =
-      Object.keys(updates);
+    playUrl: url,
 
-    if (keys.length) {
-      await db
-        .ref("opportunities")
-        .update(updates);
-
-      console.log(
-        "🧹 Removed",
-        keys.length,
-        "expired opportunities."
-      );
-    } else {
-      console.log(
-        "🧹 Removed 0 expired opportunities."
-      );
-    }
-  } catch (error) {
-    console.error(
-      "❌ Expiry cleanup error:",
-      error.message
-    );
-  }
+    publishedAt: null
+  });
 }
 
 // ============================================================
-// NORMALIZE DATABASE
+// AJIRA
 // ============================================================
 
-async function normalizeExistingCountries() {
+async function checkAjira() {
   console.log(
-    "🌍 Normalizing countries..."
+    "💼 Checking Ajira Tanzania..."
   );
 
-  try {
-    const snap =
-      await db
-        .ref("opportunities")
-        .once("value");
+  const url =
+    "https://www.ajira.go.tz/";
 
-    if (!snap.exists()) {
-      console.log(
-        "No opportunities found."
-      );
-      return;
-    }
+  return saveOpportunity({
+    title:
+      "Ajira Portal — Tanzania Public Service Jobs",
 
-    const updates = {};
+    description:
+      "Official Tanzania public service recruitment information and job vacancies.",
 
-    snap.forEach(child => {
-      const item =
-        child.val();
+    category:
+      "Work Opportunities",
 
-      if (!item) return;
+    country:
+      "Tanzania",
 
-      const country =
-        normalizeCountry(
-          item.country
-        );
+    source:
+      "Ajira / PSRS",
 
-      let countries;
+    url,
 
-      if (
-        Array.isArray(
-          item.countries
-        )
-      ) {
-        countries =
-          item.countries
-            .map(normalizeCountry)
-            .filter(Boolean);
-      } else {
-        countries =
-          [country];
-      }
+    detailsUrl: url,
 
-      if (!countries.length) {
-        countries =
-          [country];
-      }
+    applyUrl: url,
 
-      updates[
-        `${child.key}/country`
-      ] = country;
+    playUrl: url,
 
-      updates[
-        `${child.key}/countries`
-      ] = countries;
-
-      if (!item.category) {
-        updates[
-          `${child.key}/category`
-        ] = "Opportunity";
-      }
-
-      if (!item.sourceUrl) {
-        if (validURL(item.url)) {
-          updates[
-            `${child.key}/sourceUrl`
-          ] = item.url;
-        }
-      }
-
-      if (!item.detailsUrl) {
-        if (validURL(item.url)) {
-          updates[
-            `${child.key}/detailsUrl`
-          ] = item.url;
-        }
-      }
-
-      if (!item.applyUrl) {
-        if (validURL(item.url)) {
-          updates[
-            `${child.key}/applyUrl`
-          ] = item.url;
-        }
-      }
-
-      if (!item.playUrl) {
-        if (validURL(item.url)) {
-          updates[
-            `${child.key}/playUrl`
-          ] = item.url;
-        }
-      }
-    });
-
-    if (
-      Object.keys(updates).length
-    ) {
-      await db
-        .ref("opportunities")
-        .update(updates);
-    }
-
-    console.log(
-      "✅ Country normalization complete"
-    );
-  } catch (error) {
-    console.error(
-      "❌ Normalization error:",
-      error.message
-    );
-  }
+    publishedAt: null
+  });
 }
 
 // ============================================================
-// REMOVE INVALID URL
+// CLEAN INVALID URLS
 // ============================================================
 
 async function removeInvalidURLs() {
-  console.log(
-    "🔗 Checking opportunity URLs..."
-  );
+  const snap =
+    await db.ref("opportunities")
+      .once("value");
 
-  try {
-    const snap =
-      await db
-        .ref("opportunities")
-        .once("value");
+  if (!snap.exists()) return;
 
-    if (!snap.exists()) {
-      return;
-    }
+  const updates = {};
 
-    const updates = {};
-
-    snap.forEach(child => {
-      const item =
-        child.val();
-
-      if (!item) return;
-
-      const url =
-        item.sourceUrl ||
-        item.url ||
-        "";
-
-      if (!validURL(url)) {
-        console.log(
-          "🗑️ Removing invalid URL:",
-          item.title
-        );
-
-        updates[
-          child.key
-        ] = null;
-      }
-    });
+  snap.forEach(child => {
+    const item = child.val();
 
     if (
-      Object.keys(updates).length
+      !item ||
+      !validURL(item.url)
     ) {
-      await db
-        .ref("opportunities")
-        .update(updates);
+      updates[child.key] = null;
     }
+  });
 
-    console.log(
-      "🔗 URL check complete."
-    );
-  } catch (error) {
-    console.error(
-      "❌ URL cleanup error:",
-      error.message
-    );
+  if (Object.keys(updates).length) {
+    await db.ref("opportunities")
+      .update(updates);
   }
 }
 
 // ============================================================
-// MAIN BOT
+// API — OPPORTUNITIES
+// ============================================================
+
+app.get(
+  "/api/opportunities",
+  async (req, res) => {
+    try {
+      const snap =
+        await db.ref("opportunities")
+          .once("value");
+
+      const list = [];
+
+      snap.forEach(child => {
+        const item = child.val();
+
+        if (!item) return;
+
+        if (!item.active) return;
+
+        if (!validURL(item.url)) return;
+
+        list.push(item);
+      });
+
+      // Official publication date first.
+      // Items without official date go after dated items.
+      list.sort((a, b) => {
+        const da =
+          a.publishedAt
+            ? new Date(a.publishedAt).getTime()
+            : 0;
+
+        const dbb =
+          b.publishedAt
+            ? new Date(b.publishedAt).getTime()
+            : 0;
+
+        if (dbb !== da) {
+          return dbb - da;
+        }
+
+        return (
+          Number(b.updatedAt || 0) -
+          Number(a.updatedAt || 0)
+        );
+      });
+
+      res.json({
+        ok: true,
+        count: list.length,
+        opportunities: list
+      });
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        ok: false,
+        error: "Failed to load opportunities"
+      });
+    }
+  }
+);
+
+// ============================================================
+// API — VIEW
+// ============================================================
+
+app.post(
+  "/api/opportunities/:id/view",
+  async (req, res) => {
+    try {
+      const ref =
+        db.ref("opportunities")
+          .child(req.params.id);
+
+      await ref.transaction(item => {
+        if (!item) return item;
+
+        item.views =
+          Number(item.views || 0) + 1;
+
+        return item;
+      });
+
+      res.json({
+        ok: true
+      });
+    } catch {
+      res.status(500).json({
+        ok: false
+      });
+    }
+  }
+);
+
+// ============================================================
+// API — SHARE
+// ============================================================
+
+app.post(
+  "/api/opportunities/:id/share",
+  async (req, res) => {
+    try {
+      const ref =
+        db.ref("opportunities")
+          .child(req.params.id);
+
+      await ref.transaction(item => {
+        if (!item) return item;
+
+        item.shares =
+          Number(item.shares || 0) + 1;
+
+        return item;
+      });
+
+      res.json({
+        ok: true
+      });
+    } catch {
+      res.status(500).json({
+        ok: false
+      });
+    }
+  }
+);
+
+// ============================================================
+// ADMIN LOGIN
+// ============================================================
+
+app.post(
+  "/api/admin/login",
+  (req, res) => {
+    const {
+      username,
+      password
+    } = req.body || {};
+
+    if (
+      username !== ADMIN_USERNAME ||
+      password !== ADMIN_PASSWORD
+    ) {
+      return res.status(401).json({
+        ok: false,
+        error: "Invalid username or password"
+      });
+    }
+
+    const token =
+      crypto.randomBytes(32)
+        .toString("hex");
+
+    sessions.set(token, {
+      username,
+      createdAt: Date.now()
+    });
+
+    res.json({
+      ok: true,
+      token
+    });
+  }
+);
+
+// ============================================================
+// ADMIN AUTH
+// ============================================================
+
+function adminAuth(req, res, next) {
+  const header =
+    req.headers.authorization || "";
+
+  const token =
+    header.startsWith("Bearer ")
+      ? header.slice(7)
+      : "";
+
+  if (!token || !sessions.has(token)) {
+    return res.status(401).json({
+      ok: false,
+      error: "Unauthorized"
+    });
+  }
+
+  next();
+}
+
+// ============================================================
+// ONLINE USERS
+// ============================================================
+
+app.post(
+  "/api/online",
+  async (req, res) => {
+    try {
+      const clientId =
+        String(
+          req.body.clientId || ""
+        ).slice(0, 100);
+
+      if (!clientId) {
+        return res.status(400).json({
+          ok: false
+        });
+      }
+
+      await db
+        .ref("online")
+        .child(clientId)
+        .set({
+          lastSeen: Date.now()
+        });
+
+      res.json({
+        ok: true
+      });
+    } catch {
+      res.status(500).json({
+        ok: false
+      });
+    }
+  }
+);
+
+// ============================================================
+// ADMIN ONLINE COUNT
+// ============================================================
+
+app.get(
+  "/api/admin/online",
+  adminAuth,
+  async (req, res) => {
+    try {
+      const snap =
+        await db.ref("online")
+          .once("value");
+
+      const now = Date.now();
+
+      const users = [];
+
+      snap.forEach(child => {
+        const data = child.val();
+
+        if (
+          data &&
+          now - Number(data.lastSeen || 0)
+            < 2 * 60 * 1000
+        ) {
+          users.push({
+            id: child.key,
+            lastSeen: data.lastSeen
+          });
+        }
+      });
+
+      res.json({
+        ok: true,
+        count: users.length,
+        users
+      });
+    } catch {
+      res.status(500).json({
+        ok: false
+      });
+    }
+  }
+);
+
+// ============================================================
+// ADS — PUBLIC
+// ============================================================
+
+app.get(
+  "/api/ads",
+  async (req, res) => {
+    try {
+      const snap =
+        await db.ref("ads")
+          .once("value");
+
+      const ads = [];
+
+      snap.forEach(child => {
+        const ad = child.val();
+
+        if (!ad) return;
+
+        if (ad.active === false) return;
+
+        if (
+          ad.url &&
+          !validURL(ad.url)
+        ) {
+          return;
+        }
+
+        ads.push({
+          id: child.key,
+          ...ad
+        });
+      });
+
+      res.json({
+        ok: true,
+        ads
+      });
+    } catch {
+      res.status(500).json({
+        ok: false
+      });
+    }
+  }
+);
+
+// ============================================================
+// ADMIN — ADS
+// ============================================================
+
+app.post(
+  "/api/admin/ads",
+  adminAuth,
+  async (req, res) => {
+    try {
+      const {
+        title,
+        text,
+        image,
+        url
+      } = req.body || {};
+
+      if (!title) {
+        return res.status(400).json({
+          ok: false,
+          error: "Title is required"
+        });
+      }
+
+      if (
+        url &&
+        !validURL(url)
+      ) {
+        return res.status(400).json({
+          ok: false,
+          error: "Invalid ad URL"
+        });
+      }
+
+      const ref =
+        db.ref("ads").push();
+
+      await ref.set({
+        title:
+          String(title).slice(0, 200),
+
+        text:
+          String(text || "").slice(0, 1000),
+
+        image:
+          cleanURL(image),
+
+        url:
+          cleanURL(url),
+
+        active: true,
+
+        createdAt:
+          Date.now()
+      });
+
+      res.json({
+        ok: true,
+        id: ref.key
+      });
+    } catch (error) {
+      res.status(500).json({
+        ok: false,
+        error: error.message
+      });
+    }
+  }
+);
+
+app.delete(
+  "/api/admin/ads/:id",
+  adminAuth,
+  async (req, res) => {
+    try {
+      await db
+        .ref("ads")
+        .child(req.params.id)
+        .remove();
+
+      res.json({
+        ok: true
+      });
+    } catch {
+      res.status(500).json({
+        ok: false
+      });
+    }
+  }
+);
+
+// ============================================================
+// ADMIN — OPPORTUNITY DELETE
+// ============================================================
+
+app.delete(
+  "/api/admin/opportunities/:id",
+  adminAuth,
+  async (req, res) => {
+    try {
+      await db
+        .ref("opportunities")
+        .child(req.params.id)
+        .remove();
+
+      res.json({
+        ok: true
+      });
+    } catch {
+      res.status(500).json({
+        ok: false
+      });
+    }
+  }
+);
+
+// ============================================================
+// BOT
 // ============================================================
 
 async function runBot() {
@@ -1866,9 +1597,11 @@ async function runBot() {
   console.log(
     "=========================================="
   );
+
   console.log(
-    "🤖 MAKYAMA GLOBAL OPPORTUNITIES BOT V8"
+    "🌍 MAKYAMA GLOBAL OPPORTUNITIES V8"
   );
+
   console.log(
     "=========================================="
   );
@@ -1878,72 +1611,99 @@ async function runBot() {
     new Date().toISOString()
   );
 
-  console.log("");
+  let total = 0;
 
-  await removeExpired();
+  try {
+    total += await checkRemotive();
+  } catch (e) {
+    console.error(e.message);
+  }
+
+  try {
+    total += await checkGrantsGov();
+  } catch (e) {
+    console.error(e.message);
+  }
+
+  try {
+    await saveGlobalSources();
+  } catch (e) {
+    console.error(e.message);
+  }
+
+  try {
+    const result =
+      await checkHESLB();
+
+    if (result) total++;
+  } catch (e) {
+    console.error(e.message);
+  }
+
+  try {
+    const result =
+      await checkAjira();
+
+    if (result) total++;
+  } catch (e) {
+    console.error(e.message);
+  }
 
   await removeInvalidURLs();
 
-  let totalNew = 0;
-
-  // GLOBAL
-  totalNew +=
-    await checkGrantsGov();
-
-  totalNew +=
-    await checkRemotive();
-
-  totalNew +=
-    await checkInternationalSources();
-
-  totalNew +=
-    await checkGlobalEvents();
-
-  // TANZANIA
-  totalNew +=
-    await checkHESLB();
-
-  totalNew +=
-    await checkAjira();
-
-  // NORMALIZATION
-  await normalizeExistingCountries();
-
-  console.log("");
-
   console.log(
     "=========================================="
   );
 
   console.log(
-    "🎉 BOT FINISHED SUCCESSFULLY"
+    "🎉 BOT FINISHED"
   );
 
   console.log(
-    "New items:",
-    totalNew
+    "New:",
+    total
   );
 
   console.log(
     "=========================================="
   );
-
-  console.log("");
 }
 
 // ============================================================
 // START
 // ============================================================
 
-runBot().catch(error => {
-  console.error(
-    "❌ BOT CRITICAL ERROR:",
-    error
+app.listen(PORT, () => {
+  console.log(
+    "=========================================="
   );
+
+  console.log(
+    "🚀 MAKYAMA GLOBAL OPPORTUNITIES V8"
+  );
+
+  console.log(
+    "Port:",
+    PORT
+  );
+
+  console.log(
+    "Default language: English"
+  );
+
+  console.log(
+    "Mode: GLOBAL"
+  );
+
+  console.log(
+    "=========================================="
+  );
+
+  runBot().catch(console.error);
 });
 
 // ============================================================
-// AUTO RUN EVERY 30 MINUTES
+// EVERY 30 MINUTES
 // ============================================================
 
 setInterval(() => {
