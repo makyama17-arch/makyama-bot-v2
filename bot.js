@@ -37,6 +37,45 @@ app.get("/", (req, res) => {
     time: new Date().toISOString()
   });
 });
+app.get("/api/opportunities", async (req, res) => {
+  try {
+    if (!db || !firestoreAvailable) {
+      return res.status(503).json({
+        ok: false,
+        items: [],
+        message: "Firestore unavailable"
+      });
+    }
+
+    const snapshot = await db
+      .collection("opportunities")
+      .limit(500)
+      .get();
+
+    const items = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    res.json({
+      ok: true,
+      count: items.length,
+      items
+    });
+
+  } catch (error) {
+    console.error(
+      "API opportunities error:",
+      error.message
+    );
+
+    res.status(500).json({
+      ok: false,
+      items: [],
+      message: "Failed to load opportunities"
+    });
+  }
+});
 
 app.get("/health", (req, res) => {
   res.json({
