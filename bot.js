@@ -1,21 +1,40 @@
 // ============================================================
-// MAKYAMA GLOBAL OPPORTUNITIES BOT V8
+// MAKYAMA GLOBAL OPPORTUNITIES BOT V10
 // ============================================================
-// GLOBAL:
-// - Work Opportunities
-// - Jobs
-// - Scholarships
-// - Grants
-// - Internships
-// - Events
-// - Global News / Announcements
+// GLOBAL COUNTRY COVERAGE
 //
-// IMPORTANT:
-// - Grants.gov: POSTED ONLY
-// - Expired opportunities removed
-// - Official publication date preserved
-// - Every opportunity MUST have a valid URL
-// - Latest published opportunities first
+// FEATURES
+// ------------------------------------------------------------
+// 1. 195 countries catalog
+// 2. Country API even when country has zero opportunities
+// 3. Global opportunities
+// 4. Jobs
+// 5. Scholarships
+// 6. Grants
+// 7. Internships
+// 8. Events
+// 9. News / Announcements
+// 10. Country updates
+// 11. Grants.gov posted opportunities
+// 12. Remotive remote jobs
+// 13. RSS / Google News country discovery
+// 14. Official publication dates preserved
+// 15. No fake Date.now() publication dates
+// 16. Expired opportunity cleanup
+// 17. Invalid URL cleanup
+// 18. Duplicate protection
+// 19. Search API
+// 20. Country statistics API
+// 21. Single opportunity details API
+// 22. Ads API
+//
+// NODE:
+// Node.js 18+
+//
+// PACKAGES:
+// express
+// firebase-admin
+//
 // ============================================================
 
 const express = require("express");
@@ -25,14 +44,45 @@ const app = express();
 
 const PORT = process.env.PORT || 10000;
 
-app.use(express.json({ limit: "2mb" }));
+app.use(
+  express.json({
+    limit: "3mb"
+  })
+);
+
+// ============================================================
+// CONFIG
+// ============================================================
+
+const BOT_VERSION = "10.0.0";
+
+const CHECK_INTERVAL =
+  30 * 60 * 1000;
+
+const USER_AGENT =
+  "MAKYAMA-Global-Opportunities-Bot/10.0 (+https://makyama.vercel.app)";
+
+const MAX_REMOTIVE_JOBS = 100;
+
+const MAX_GRANTS = 100;
+
+const MAX_RSS_ITEMS_PER_COUNTRY = 8;
+
+const REQUEST_TIMEOUT = 20000;
+
+const DAYS_TO_KEEP_NEWS = 90;
+
+const DAYS_TO_KEEP_OPPORTUNITIES = 365;
 
 // ============================================================
 // FIREBASE
 // ============================================================
 
 if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
-  console.error("❌ FIREBASE_SERVICE_ACCOUNT is missing!");
+  console.error(
+    "❌ FIREBASE_SERVICE_ACCOUNT is missing!"
+  );
+
   process.exit(1);
 }
 
@@ -50,775 +100,938 @@ try {
   process.exit(1);
 }
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential:
+      admin.credential.cert(
+        serviceAccount
+      ),
 
-  databaseURL:
-    process.env.FIREBASE_DATABASE_URL ||
-    "https://makyama-e5e89-default-rtdb.firebaseio.com/"
-});
+    databaseURL:
+      process.env.FIREBASE_DATABASE_URL ||
+      "https://makyama-e5e89-default-rtdb.firebaseio.com/"
+  });
+}
 
 const db = admin.database();
 
 // ============================================================
-// CONSTANTS
+// COUNTRY DATABASE
+// 195 COUNTRIES
 // ============================================================
 
-const CHECK_INTERVAL =
-  30 * 60 * 1000;
+const COUNTRIES = [
+  {
+    code: "AF",
+    name: "Afghanistan"
+  },
+  {
+    code: "AL",
+    name: "Albania"
+  },
+  {
+    code: "DZ",
+    name: "Algeria"
+  },
+  {
+    code: "AD",
+    name: "Andorra"
+  },
+  {
+    code: "AO",
+    name: "Angola"
+  },
+  {
+    code: "AG",
+    name: "Antigua and Barbuda"
+  },
+  {
+    code: "AR",
+    name: "Argentina"
+  },
+  {
+    code: "AM",
+    name: "Armenia"
+  },
+  {
+    code: "AU",
+    name: "Australia"
+  },
+  {
+    code: "AT",
+    name: "Austria"
+  },
+  {
+    code: "AZ",
+    name: "Azerbaijan"
+  },
 
-const USER_AGENT =
-  "MAKYAMA-Global-Opportunities-Bot/8.0 (+https://makyama.vercel.app)";
+  {
+    code: "BS",
+    name: "Bahamas"
+  },
+  {
+    code: "BH",
+    name: "Bahrain"
+  },
+  {
+    code: "BD",
+    name: "Bangladesh"
+  },
+  {
+    code: "BB",
+    name: "Barbados"
+  },
+  {
+    code: "BY",
+    name: "Belarus"
+  },
+  {
+    code: "BE",
+    name: "Belgium"
+  },
+  {
+    code: "BZ",
+    name: "Belize"
+  },
+  {
+    code: "BJ",
+    name: "Benin"
+  },
+  {
+    code: "BT",
+    name: "Bhutan"
+  },
+  {
+    code: "BO",
+    name: "Bolivia"
+  },
+  {
+    code: "BA",
+    name: "Bosnia and Herzegovina"
+  },
+  {
+    code: "BW",
+    name: "Botswana"
+  },
+  {
+    code: "BR",
+    name: "Brazil"
+  },
+  {
+    code: "BN",
+    name: "Brunei"
+  },
+  {
+    code: "BG",
+    name: "Bulgaria"
+  },
+  {
+    code: "BF",
+    name: "Burkina Faso"
+  },
+  {
+    code: "BI",
+    name: "Burundi"
+  },
 
-const MAX_REMOTIVE_JOBS = 100;
+  {
+    code: "CV",
+    name: "Cabo Verde"
+  },
+  {
+    code: "KH",
+    name: "Cambodia"
+  },
+  {
+    code: "CM",
+    name: "Cameroon"
+  },
+  {
+    code: "CA",
+    name: "Canada"
+  },
+  {
+    code: "CF",
+    name: "Central African Republic"
+  },
+  {
+    code: "TD",
+    name: "Chad"
+  },
+  {
+    code: "CL",
+    name: "Chile"
+  },
+  {
+    code: "CN",
+    name: "China"
+  },
+  {
+    code: "CO",
+    name: "Colombia"
+  },
+  {
+    code: "KM",
+    name: "Comoros"
+  },
+  {
+    code: "CG",
+    name: "Congo"
+  },
+  {
+    code: "CD",
+    name: "Democratic Republic of the Congo"
+  },
+  {
+    code: "CR",
+    name: "Costa Rica"
+  },
+  {
+    code: "CI",
+    name: "Côte d'Ivoire"
+  },
+  {
+    code: "HR",
+    name: "Croatia"
+  },
+  {
+    code: "CU",
+    name: "Cuba"
+  },
+  {
+    code: "CY",
+    name: "Cyprus"
+  },
+  {
+    code: "CZ",
+    name: "Czechia"
+  },
 
-const MAX_GRANTS = 100;
+  {
+    code: "DK",
+    name: "Denmark"
+  },
+  {
+    code: "DJ",
+    name: "Djibouti"
+  },
+  {
+    code: "DM",
+    name: "Dominica"
+  },
+  {
+    code: "DO",
+    name: "Dominican Republic"
+  },
 
-// ============================================================
-// HEALTH
-// ============================================================
+  {
+    code: "EC",
+    name: "Ecuador"
+  },
+  {
+    code: "EG",
+    name: "Egypt"
+  },
+  {
+    code: "SV",
+    name: "El Salvador"
+  },
+  {
+    code: "GQ",
+    name: "Equatorial Guinea"
+  },
+  {
+    code: "ER",
+    name: "Eritrea"
+  },
+  {
+    code: "EE",
+    name: "Estonia"
+  },
+  {
+    code: "SZ",
+    name: "Eswatini"
+  },
+  {
+    code: "ET",
+    name: "Ethiopia"
+  },
 
-app.get("/", (req, res) => {
-  res.json({
-    status: "online",
-    name: "MAKYAMA Global Opportunities Bot",
-    version: "8.0.0",
-    mode: "GLOBAL",
-    language: "English",
-    message: "Bot is running successfully"
-  });
-});
+  {
+    code: "FJ",
+    name: "Fiji"
+  },
+  {
+    code: "FI",
+    name: "Finland"
+  },
+  {
+    code: "FR",
+    name: "France"
+  },
 
-app.get("/health", (req, res) => {
-  res.json({
-    ok: true,
-    service: "MAKYAMA BOT",
-    version: "8.0.0",
-    time: new Date().toISOString()
-  });
-});
+  {
+    code: "GA",
+    name: "Gabon"
+  },
+  {
+    code: "GM",
+    name: "Gambia"
+  },
+  {
+    code: "GE",
+    name: "Georgia"
+  },
+  {
+    code: "DE",
+    name: "Germany"
+  },
+  {
+    code: "GH",
+    name: "Ghana"
+  },
+  {
+    code: "GR",
+    name: "Greece"
+  },
+  {
+    code: "GD",
+    name: "Grenada"
+  },
+  {
+    code: "GT",
+    name: "Guatemala"
+  },
+  {
+    code: "GN",
+    name: "Guinea"
+  },
+  {
+    code: "GW",
+    name: "Guinea-Bissau"
+  },
+  {
+    code: "GY",
+    name: "Guyana"
+  },
 
-// ============================================================
-// API: OPPORTUNITIES
-// ============================================================
+  {
+    code: "HT",
+    name: "Haiti"
+  },
+  {
+    code: "HN",
+    name: "Honduras"
+  },
+  {
+    code: "HU",
+    name: "Hungary"
+  },
 
-app.get("/api/opportunities", async (req, res) => {
-  try {
-    const snap =
-      await db.ref("opportunities").once("value");
+  {
+    code: "IS",
+    name: "Iceland"
+  },
+  {
+    code: "IN",
+    name: "India"
+  },
+  {
+    code: "ID",
+    name: "Indonesia"
+  },
+  {
+    code: "IR",
+    name: "Iran"
+  },
+  {
+    code: "IQ",
+    name: "Iraq"
+  },
+  {
+    code: "IE",
+    name: "Ireland"
+  },
+  {
+    code: "IL",
+    name: "Israel"
+  },
+  {
+    code: "IT",
+    name: "Italy"
+  },
 
-    const data = [];
+  {
+    code: "JM",
+    name: "Jamaica"
+  },
+  {
+    code: "JP",
+    name: "Japan"
+  },
+  {
+    code: "JO",
+    name: "Jordan"
+  },
 
-    snap.forEach(child => {
-      const item = child.val();
+  {
+    code: "KZ",
+    name: "Kazakhstan"
+  },
+  {
+    code: "KE",
+    name: "Kenya"
+  },
+  {
+    code: "KI",
+    name: "Kiribati"
+  },
+  {
+    code: "KP",
+    name: "North Korea"
+  },
+  {
+    code: "KR",
+    name: "South Korea"
+  },
+  {
+    code: "KW",
+    name: "Kuwait"
+  },
+  {
+    code: "KG",
+    name: "Kyrgyzstan"
+  },
 
-      if (!item) return;
+  {
+    code: "LA",
+    name: "Laos"
+  },
+  {
+    code: "LV",
+    name: "Latvia"
+  },
+  {
+    code: "LB",
+    name: "Lebanon"
+  },
+  {
+    code: "LS",
+    name: "Lesotho"
+  },
+  {
+    code: "LR",
+    name: "Liberia"
+  },
+  {
+    code: "LY",
+    name: "Libya"
+  },
+  {
+    code: "LI",
+    name: "Liechtenstein"
+  },
+  {
+    code: "LT",
+    name: "Lithuania"
+  },
+  {
+    code: "LU",
+    name: "Luxembourg"
+  },
 
-      if (item.active === false) return;
+  {
+    code: "MG",
+    name: "Madagascar"
+  },
+  {
+    code: "MW",
+    name: "Malawi"
+  },
+  {
+    code: "MY",
+    name: "Malaysia"
+  },
+  {
+    code: "MV",
+    name: "Maldives"
+  },
+  {
+    code: "ML",
+    name: "Mali"
+  },
+  {
+    code: "MT",
+    name: "Malta"
+  },
+  {
+    code: "MH",
+    name: "Marshall Islands"
+  },
+  {
+    code: "MR",
+    name: "Mauritania"
+  },
+  {
+    code: "MU",
+    name: "Mauritius"
+  },
+  {
+    code: "MX",
+    name: "Mexico"
+  },
+  {
+    code: "FM",
+    name: "Micronesia"
+  },
+  {
+    code: "MD",
+    name: "Moldova"
+  },
+  {
+    code: "MC",
+    name: "Monaco"
+  },
+  {
+    code: "MN",
+    name: "Mongolia"
+  },
+  {
+    code: "ME",
+    name: "Montenegro"
+  },
+  {
+    code: "MA",
+    name: "Morocco"
+  },
+  {
+    code: "MZ",
+    name: "Mozambique"
+  },
+  {
+    code: "MM",
+    name: "Myanmar"
+  },
 
-      if (!validURL(item.url)) return;
+  {
+    code: "NA",
+    name: "Namibia"
+  },
+  {
+    code: "NR",
+    name: "Nauru"
+  },
+  {
+    code: "NP",
+    name: "Nepal"
+  },
+  {
+    code: "NL",
+    name: "Netherlands"
+  },
+  {
+    code: "NZ",
+    name: "New Zealand"
+  },
+  {
+    code: "NI",
+    name: "Nicaragua"
+  },
+  {
+    code: "NE",
+    name: "Niger"
+  },
+  {
+    code: "NG",
+    name: "Nigeria"
+  },
+  {
+    code: "MK",
+    name: "North Macedonia"
+  },
+  {
+    code: "NO",
+    name: "Norway"
+  },
 
-      data.push(item);
-    });
+  {
+    code: "OM",
+    name: "Oman"
+  },
 
-    data.sort(
-      (a, b) =>
-        Number(b.publishedAt || 0) -
-        Number(a.publishedAt || 0)
-    );
+  {
+    code: "PK",
+    name: "Pakistan"
+  },
+  {
+    code: "PW",
+    name: "Palau"
+  },
+  {
+    code: "PA",
+    name: "Panama"
+  },
+  {
+    code: "PG",
+    name: "Papua New Guinea"
+  },
+  {
+    code: "PY",
+    name: "Paraguay"
+  },
+  {
+    code: "PE",
+    name: "Peru"
+  },
+  {
+    code: "PH",
+    name: "Philippines"
+  },
+  {
+    code: "PL",
+    name: "Poland"
+  },
+  {
+    code: "PT",
+    name: "Portugal"
+  },
 
-    res.json({
-      ok: true,
-      count: data.length,
-      opportunities: data
-    });
+  {
+    code: "QA",
+    name: "Qatar"
+  },
 
-  } catch (error) {
+  {
+    code: "RO",
+    name: "Romania"
+  },
+  {
+    code: "RU",
+    name: "Russia"
+  },
+  {
+    code: "RW",
+    name: "Rwanda"
+  },
 
-    console.error(
-      "❌ API opportunities error:",
-      error.message
-    );
+  {
+    code: "KN",
+    name: "Saint Kitts and Nevis"
+  },
+  {
+    code: "LC",
+    name: "Saint Lucia"
+  },
+  {
+    code: "VC",
+    name: "Saint Vincent and the Grenadines"
+  },
+  {
+    code: "WS",
+    name: "Samoa"
+  },
+  {
+    code: "SM",
+    name: "San Marino"
+  },
+  {
+    code: "ST",
+    name: "Sao Tome and Principe"
+  },
+  {
+    code: "SA",
+    name: "Saudi Arabia"
+  },
+  {
+    code: "SN",
+    name: "Senegal"
+  },
+  {
+    code: "RS",
+    name: "Serbia"
+  },
+  {
+    code: "SC",
+    name: "Seychelles"
+  },
+  {
+    code: "SL",
+    name: "Sierra Leone"
+  },
+  {
+    code: "SG",
+    name: "Singapore"
+  },
+  {
+    code: "SK",
+    name: "Slovakia"
+  },
+  {
+    code: "SI",
+    name: "Slovenia"
+  },
+  {
+    code: "SB",
+    name: "Solomon Islands"
+  },
+  {
+    code: "SO",
+    name: "Somalia"
+  },
+  {
+    code: "ZA",
+    name: "South Africa"
+  },
+  {
+    code: "SS",
+    name: "South Sudan"
+  },
+  {
+    code: "ES",
+    name: "Spain"
+  },
+  {
+    code: "LK",
+    name: "Sri Lanka"
+  },
+  {
+    code: "SD",
+    name: "Sudan"
+  },
+  {
+    code: "SR",
+    name: "Suriname"
+  },
+  {
+    code: "SE",
+    name: "Sweden"
+  },
+  {
+    code: "CH",
+    name: "Switzerland"
+  },
+  {
+    code: "SY",
+    name: "Syria"
+  },
 
-    res.status(500).json({
-      ok: false,
-      error: "Failed to load opportunities"
-    });
+  {
+    code: "TJ",
+    name: "Tajikistan"
+  },
+  {
+    code: "TZ",
+    name: "Tanzania"
+  },
+  {
+    code: "TH",
+    name: "Thailand"
+  },
+  {
+    code: "TL",
+    name: "Timor-Leste"
+  },
+  {
+    code: "TG",
+    name: "Togo"
+  },
+  {
+    code: "TO",
+    name: "Tonga"
+  },
+  {
+    code: "TT",
+    name: "Trinidad and Tobago"
+  },
+  {
+    code: "TN",
+    name: "Tunisia"
+  },
+  {
+    code: "TR",
+    name: "Türkiye"
+  },
+  {
+    code: "TM",
+    name: "Turkmenistan"
+  },
+  {
+    code: "TV",
+    name: "Tuvalu"
+  },
+
+  {
+    code: "UG",
+    name: "Uganda"
+  },
+  {
+    code: "UA",
+    name: "Ukraine"
+  },
+  {
+    code: "AE",
+    name: "United Arab Emirates"
+  },
+  {
+    code: "GB",
+    name: "United Kingdom"
+  },
+  {
+    code: "US",
+    name: "United States"
+  },
+  {
+    code: "UY",
+    name: "Uruguay"
+  },
+  {
+    code: "UZ",
+    name: "Uzbekistan"
+  },
+
+  {
+    code: "VU",
+    name: "Vanuatu"
+  },
+  {
+    code: "VA",
+    name: "Vatican City"
+  },
+  {
+    code: "VE",
+    name: "Venezuela"
+  },
+  {
+    code: "VN",
+    name: "Vietnam"
+  },
+
+  {
+    code: "YE",
+    name: "Yemen"
+  },
+
+  {
+    code: "ZM",
+    name: "Zambia"
+  },
+  {
+    code: "ZW",
+    name: "Zimbabwe"
   }
-});
+];
 
 // ============================================================
-// API: SINGLE OPPORTUNITY
+// COUNTRY ALIASES
 // ============================================================
 
-app.get("/api/opportunities/:id", async (req, res) => {
-  try {
-
-    const id = req.params.id;
-
-    const snap =
-      await db
-        .ref("opportunities")
-        .child(id)
-        .once("value");
-
-    if (!snap.exists()) {
-      return res.status(404).json({
-        ok: false,
-        error: "Opportunity not found"
-      });
-    }
-
-    const item = snap.val();
-
-    if (
-      !item ||
-      item.active === false ||
-      !validURL(item.url)
-    ) {
-      return res.status(404).json({
-        ok: false,
-        error: "Opportunity unavailable"
-      });
-    }
-
-    await db
-      .ref(`opportunities/${id}/views`)
-      .transaction(value =>
-        Number(value || 0) + 1
-      );
-
-    item.views =
-      Number(item.views || 0) + 1;
-
-    res.json({
-      ok: true,
-      opportunity: item
-    });
-
-  } catch (error) {
-
-    console.error(
-      "❌ Single opportunity error:",
-      error.message
-    );
-
-    res.status(500).json({
-      ok: false,
-      error: "Failed to load opportunity"
-    });
-  }
-});
-
-// ============================================================
-// API: ADS
-// ============================================================
-
-app.get("/api/ads", async (req, res) => {
-
-  try {
-
-    const snap =
-      await db.ref("ads").once("value");
-
-    const ads = [];
-
-    snap.forEach(child => {
-
-      const ad = child.val();
-
-      if (!ad) return;
-
-      if (ad.active === false) return;
-
-      ads.push({
-        id: child.key,
-        ...ad
-      });
-    });
-
-    ads.sort(
-      (a, b) =>
-        Number(b.createdAt || 0) -
-        Number(a.createdAt || 0)
-    );
-
-    res.json({
-      ok: true,
-      ads
-    });
-
-  } catch (error) {
-
-    console.error(
-      "❌ Ads API error:",
-      error.message
-    );
-
-    res.status(500).json({
-      ok: false,
-      error: "Failed to load ads"
-    });
-  }
-});
-
-// ============================================================
-// SERVER
-// ============================================================
-
-app.listen(PORT, () => {
-
-  console.log("");
-  console.log("==========================================");
-  console.log("🚀 MAKYAMA GLOBAL OPPORTUNITIES BOT V8");
-  console.log("==========================================");
-  console.log("Port:", PORT);
-  console.log("Interval: 30 minutes");
-  console.log("Default language: English");
-  console.log("Mode: GLOBAL");
-  console.log("Grants.gov: POSTED ONLY");
-  console.log("Expired cleanup: ENABLED");
-  console.log("Official dates: ENABLED");
-  console.log("==========================================");
-  console.log("");
-
-});
-
-// ============================================================
-// FETCH JSON
-// ============================================================
-
-async function fetchJSON(url, options = {}) {
-
-  const response =
-    await fetch(url, {
-
-      ...options,
-
-      headers: {
-
-        "User-Agent":
-          USER_AGENT,
-
-        Accept:
-          "application/json,text/plain,*/*",
-
-        ...(options.headers || {})
-      }
-    });
-
-  if (!response.ok) {
-
-    throw new Error(
-      `HTTP ${response.status} ${response.statusText}`
-    );
-  }
-
-  return await response.json();
-}
-
-// ============================================================
-// FETCH TEXT
-// ============================================================
-
-async function fetchText(url, options = {}) {
-
-  const response =
-    await fetch(url, {
-
-      ...options,
-
-      headers: {
-
-        "User-Agent":
-          USER_AGENT,
-
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-
-        ...(options.headers || {})
-      }
-    });
-
-  if (!response.ok) {
-
-    throw new Error(
-      `HTTP ${response.status} ${response.statusText}`
-    );
-  }
-
-  return await response.text();
-}
-
-// ============================================================
-// URL VALIDATION
-// ============================================================
-
-function validURL(value) {
-
-  if (
-    !value ||
-    typeof value !== "string"
-  ) {
-    return false;
-  }
-
-  try {
-
-    const url =
-      new URL(value.trim());
-
-    return (
-      (
-        url.protocol === "http:" ||
-        url.protocol === "https:"
-      ) &&
-      !!url.hostname
-    );
-
-  } catch {
-
-    return false;
-  }
-}
-
-function cleanURL(value) {
-
-  if (
-    !value ||
-    typeof value !== "string"
-  ) {
-    return "";
-  }
-
-  const url =
-    value.trim();
-
-  return validURL(url)
-    ? url
-    : "";
-}
-
-// ============================================================
-// DATE PARSER
-// ============================================================
-
-function parseOfficialDate(value) {
-
-  if (!value) return null;
-
-  if (value instanceof Date) {
-
-    const time =
-      value.getTime();
-
-    return isNaN(time)
-      ? null
-      : time;
-  }
-
-  const text =
-    String(value).trim();
-
-  if (!text) return null;
-
-  // YYYY-MM-DD
-
-  if (
-    /^\d{4}-\d{2}-\d{2}$/
-      .test(text)
-  ) {
-
-    const date =
-      new Date(
-        `${text}T00:00:00Z`
-      );
-
-    const time =
-      date.getTime();
-
-    return isNaN(time)
-      ? null
-      : time;
-  }
-
-  // MM/DD/YYYY
-
-  if (
-    /^\d{1,2}\/\d{1,2}\/\d{4}$/
-      .test(text)
-  ) {
-
-    const parts =
-      text.split("/")
-        .map(Number);
-
-    const month = parts[0];
-    const day = parts[1];
-    const year = parts[2];
-
-    const date =
-      new Date(
-        Date.UTC(
-          year,
-          month - 1,
-          day
-        )
-      );
-
-    const time =
-      date.getTime();
-
-    return isNaN(time)
-      ? null
-      : time;
-  }
-
-  const parsed =
-    Date.parse(text);
-
-  return isNaN(parsed)
-    ? null
-    : parsed;
-}
-
-// ============================================================
-// FORMAT DESCRIPTION
-// ============================================================
-
-function cleanDescription(value) {
-
-  if (!value) {
-    return "";
-  }
-
-  let text =
-    String(value);
-
-  // Remove script/style
-
-  text =
-    text.replace(
-      /<script[\s\S]*?<\/script>/gi,
-      " "
-    );
-
-  text =
-    text.replace(
-      /<style[\s\S]*?<\/style>/gi,
-      " "
-    );
-
-  // Convert common HTML elements
-
-  text =
-    text.replace(
-      /<br\s*\/?>/gi,
-      "\n"
-    );
-
-  text =
-    text.replace(
-      /<\/p>/gi,
-      "\n\n"
-    );
-
-  text =
-    text.replace(
-      /<\/div>/gi,
-      "\n"
-    );
-
-  // Remove HTML
-
-  text =
-    text.replace(
-      /<[^>]+>/g,
-      " "
-    );
-
-  // Decode some HTML entities
-
-  text =
-    text
-      .replace(/&nbsp;/gi, " ")
-      .replace(/&amp;/gi, "&")
-      .replace(/&quot;/gi, '"')
-      .replace(/&#39;/gi, "'")
-      .replace(/&lt;/gi, "<")
-      .replace(/&gt;/gi, ">");
-
-  // Normalize whitespace
-
-  text =
-    text.replace(
-      /[ \t]+/g,
-      " "
-    );
-
-  text =
-    text.replace(
-      /\n\s*\n\s*\n+/g,
-      "\n\n"
-    );
-
-  return text.trim();
-}
-
-// ============================================================
-// COUNTRY MAP
-// ============================================================
-
-const COUNTRY_MAP = {
-
-  afghanistan: "Afghanistan",
-  albania: "Albania",
-  algeria: "Algeria",
-  andorra: "Andorra",
-  angola: "Angola",
-  antigua: "Antigua and Barbuda",
-  argentina: "Argentina",
-  armenia: "Armenia",
-  australia: "Australia",
-  austria: "Austria",
-  azerbaijan: "Azerbaijan",
-
-  bahamas: "Bahamas",
-  bahrain: "Bahrain",
-  bangladesh: "Bangladesh",
-  barbados: "Barbados",
-  belarus: "Belarus",
-  belgium: "Belgium",
-  belize: "Belize",
-  benin: "Benin",
-  bhutan: "Bhutan",
-  bolivia: "Bolivia",
-  bosnia: "Bosnia and Herzegovina",
-  botswana: "Botswana",
-  brazil: "Brazil",
-  brunei: "Brunei",
-  bulgaria: "Bulgaria",
-  burkina: "Burkina Faso",
-  burundi: "Burundi",
-
-  cambodia: "Cambodia",
-  cameroon: "Cameroon",
-  canada: "Canada",
-  chad: "Chad",
-  chile: "Chile",
-  china: "China",
-  colombia: "Colombia",
-  comoros: "Comoros",
-  congo: "Congo",
-  "costa rica": "Costa Rica",
-  croatia: "Croatia",
-  cuba: "Cuba",
-  cyprus: "Cyprus",
-  "czech republic": "Czechia",
-
-  denmark: "Denmark",
-  djibouti: "Djibouti",
-  dominica: "Dominica",
-  "dominican republic":
-    "Dominican Republic",
-
-  ecuador: "Ecuador",
-  egypt: "Egypt",
-  "el salvador": "El Salvador",
-  eritrea: "Eritrea",
-  estonia: "Estonia",
-  eswatini: "Eswatini",
-  ethiopia: "Ethiopia",
-
-  fiji: "Fiji",
-  finland: "Finland",
-  france: "France",
-
-  gabon: "Gabon",
-  gambia: "Gambia",
-  georgia: "Georgia",
-  germany: "Germany",
-  ghana: "Ghana",
-  greece: "Greece",
-  grenada: "Grenada",
-  guatemala: "Guatemala",
-  guinea: "Guinea",
-  guyana: "Guyana",
-
-  haiti: "Haiti",
-  honduras: "Honduras",
-  hungary: "Hungary",
-
-  iceland: "Iceland",
-  india: "India",
-  indonesia: "Indonesia",
-  iran: "Iran",
-  iraq: "Iraq",
-  ireland: "Ireland",
-  israel: "Israel",
-  italy: "Italy",
-
-  jamaica: "Jamaica",
-  japan: "Japan",
-  jordan: "Jordan",
-
-  kazakhstan: "Kazakhstan",
-  kenya: "Kenya",
-  kiribati: "Kiribati",
-  kuwait: "Kuwait",
-  kyrgyzstan: "Kyrgyzstan",
-
-  laos: "Laos",
-  latvia: "Latvia",
-  lebanon: "Lebanon",
-  lesotho: "Lesotho",
-  liberia: "Liberia",
-  libya: "Libya",
-  liechtenstein: "Liechtenstein",
-  lithuania: "Lithuania",
-  luxembourg: "Luxembourg",
-
-  madagascar: "Madagascar",
-  malawi: "Malawi",
-  malaysia: "Malaysia",
-  maldives: "Maldives",
-  mali: "Mali",
-  malta: "Malta",
-  mauritania: "Mauritania",
-  mauritius: "Mauritius",
-  mexico: "Mexico",
-  micronesia: "Micronesia",
-  moldova: "Moldova",
-  monaco: "Monaco",
-  mongolia: "Mongolia",
-  montenegro: "Montenegro",
-  morocco: "Morocco",
-  mozambique: "Mozambique",
-  myanmar: "Myanmar",
-
-  namibia: "Namibia",
-  nauru: "Nauru",
-  nepal: "Nepal",
-  netherlands: "Netherlands",
-  "new zealand": "New Zealand",
-  nicaragua: "Nicaragua",
-  niger: "Niger",
-  nigeria: "Nigeria",
-  "north korea": "North Korea",
-  "north macedonia": "North Macedonia",
-  norway: "Norway",
-
-  oman: "Oman",
-
-  pakistan: "Pakistan",
-  palau: "Palau",
-  panama: "Panama",
-  paraguay: "Paraguay",
-  peru: "Peru",
-  philippines: "Philippines",
-  poland: "Poland",
-  portugal: "Portugal",
-
-  qatar: "Qatar",
-
-  romania: "Romania",
-  russia: "Russia",
-  rwanda: "Rwanda",
-
-  samoa: "Samoa",
-  "saudi arabia": "Saudi Arabia",
-  senegal: "Senegal",
-  serbia: "Serbia",
-  seychelles: "Seychelles",
-  "sierra leone": "Sierra Leone",
-  singapore: "Singapore",
-  slovakia: "Slovakia",
-  slovenia: "Slovenia",
-  "solomon islands":
-    "Solomon Islands",
-  somalia: "Somalia",
-  "south africa": "South Africa",
-  "south korea": "South Korea",
-  "south sudan": "South Sudan",
-  spain: "Spain",
-  "sri lanka": "Sri Lanka",
-  sudan: "Sudan",
-  suriname: "Suriname",
-  sweden: "Sweden",
-  switzerland: "Switzerland",
-  syria: "Syria",
-
-  taiwan: "Taiwan",
-  tajikistan: "Tajikistan",
-  tanzania: "Tanzania",
-  thailand: "Thailand",
-  togo: "Togo",
-  tonga: "Tonga",
-  tunisia: "Tunisia",
-  turkey: "Türkiye",
-  turkmenistan: "Turkmenistan",
-  tuvalu: "Tuvalu",
-
-  uganda: "Uganda",
-  ukraine: "Ukraine",
-  "united arab emirates":
-    "United Arab Emirates",
-  "united kingdom":
-    "United Kingdom",
-  "united states":
-    "United States",
-  uruguay: "Uruguay",
-  uzbekistan: "Uzbekistan",
-
-  vanuatu: "Vanuatu",
-  venezuela: "Venezuela",
-  vietnam: "Vietnam",
-
-  yemen: "Yemen",
-
-  zambia: "Zambia",
-  zimbabwe: "Zimbabwe",
-
-  // Common abbreviations
+const COUNTRY_ALIASES = {
 
   usa: "United States",
   us: "United States",
+  "u.s.": "United States",
+  "u.s.a.": "United States",
+  america: "United States",
 
   uk: "United Kingdom",
+  britain: "United Kingdom",
+  "great britain": "United Kingdom",
+  "u.k.": "United Kingdom",
 
   tz: "Tanzania",
+  tanzania: "Tanzania",
 
   ke: "Kenya",
+  kenya: "Kenya",
 
   ug: "Uganda",
+  uganda: "Uganda",
 
-  rw: "Rwanda"
+  rw: "Rwanda",
+  rwanda: "Rwanda",
+
+  drc: "Democratic Republic of the Congo",
+  congo: "Republic of the Congo",
+
+  "south korea": "South Korea",
+  korea: "South Korea",
+
+  "north korea": "North Korea",
+
+  turkey: "Türkiye",
+
+  czech: "Czechia",
+
+  "ivory coast": "Côte d'Ivoire",
+
+  swaziland: "Eswatini",
+
+  burma: "Myanmar",
+
+  palestine: "Palestine"
 };
 
 // ============================================================
-// COUNTRY NORMALIZATION
+// COUNTRY LOOKUPS
 // ============================================================
 
-function normalizeCountry(country) {
+function getCountryByName(name) {
 
-  if (!country) {
-    return "International";
+  if (!name) {
+    return null;
   }
 
-  const value =
-    String(country).trim();
+  const normalized =
+    String(name)
+      .trim()
+      .toLowerCase();
 
-  const key =
-    value.toLowerCase();
+  const alias =
+    COUNTRY_ALIASES[
+      normalized
+    ];
 
-  return (
-    COUNTRY_MAP[key] ||
-    value
-  );
+  if (alias) {
+    return alias;
+  }
+
+  const found =
+    COUNTRIES.find(
+      country =>
+        country.name
+          .toLowerCase() ===
+        normalized
+    );
+
+  return found
+    ? found.name
+    : null;
+}
+
+function getCountryCode(name) {
+
+  const countryName =
+    getCountryByName(name);
+
+  if (!countryName) {
+    return null;
+  }
+
+  const country =
+    COUNTRIES.find(
+      item =>
+        item.name ===
+        countryName
+    );
+
+  return country
+    ? country.code
+    : null;
 }
 
 // ============================================================
-// DETECT COUNTRY
+// COUNTRY DETECTION
 // ============================================================
 
 function detectCountry(text) {
@@ -828,27 +1041,56 @@ function detectCountry(text) {
   }
 
   const value =
-    String(text).toLowerCase();
+    String(text)
+      .toLowerCase();
+
+  // Longest names first
+  // prevents "congo" matching before
+  // "democratic republic of the congo"
+
+  const names = [
+    ...COUNTRIES
+      .map(
+        item =>
+          item.name
+      ),
+
+    ...Object.keys(
+      COUNTRY_ALIASES
+    )
+  ]
+    .sort(
+      (a, b) =>
+        b.length - a.length
+    );
 
   for (
-    const [key, country]
-    of Object.entries(COUNTRY_MAP)
+    const name
+    of names
   ) {
 
     const escaped =
-      key.replace(
+      name.replace(
         /[.*+?^${}()|[\]\\]/g,
         "\\$&"
       );
 
     const regex =
       new RegExp(
-        `(^|[^a-z])${escaped}([^a-z]|$)`,
+        `(^|[^a-z])${escaped.toLowerCase()}([^a-z]|$)`,
         "i"
       );
 
-    if (regex.test(value)) {
-      return country;
+    if (
+      regex.test(value)
+    ) {
+
+      return (
+        COUNTRY_ALIASES[
+          name.toLowerCase()
+        ] ||
+        name
+      );
     }
   }
 
@@ -856,10 +1098,34 @@ function detectCountry(text) {
 }
 
 // ============================================================
+// NORMALIZE COUNTRY
+// ============================================================
+
+function normalizeCountry(
+  country
+) {
+
+  if (!country) {
+    return "International";
+  }
+
+  return (
+    getCountryByName(
+      country
+    ) ||
+    country
+      .toString()
+      .trim()
+  );
+}
+
+// ============================================================
 // CATEGORY
 // ============================================================
 
-function normalizeCategory(category) {
+function normalizeCategory(
+  category
+) {
 
   if (!category) {
     return "Opportunity";
@@ -873,7 +1139,8 @@ function normalizeCategory(category) {
   if (
     value.includes("scholar") ||
     value.includes("fellowship") ||
-    value.includes("education")
+    value.includes("education") ||
+    value.includes("study")
   ) {
     return "Education";
   }
@@ -890,7 +1157,7 @@ function normalizeCategory(category) {
     value.includes("job") ||
     value.includes("career") ||
     value.includes("employment") ||
-    value.includes("work opportunity")
+    value.includes("work")
   ) {
     return "Work Opportunities";
   }
@@ -928,10 +1195,264 @@ function normalizeCategory(category) {
 }
 
 // ============================================================
-// ID
+// URL
 // ============================================================
 
-function makeID(title, url) {
+function validURL(
+  value
+) {
+
+  if (
+    !value ||
+    typeof value !== "string"
+  ) {
+    return false;
+  }
+
+  try {
+
+    const url =
+      new URL(
+        value.trim()
+      );
+
+    return (
+      (
+        url.protocol ===
+          "http:" ||
+        url.protocol ===
+          "https:"
+      ) &&
+      !!url.hostname
+    );
+
+  } catch {
+
+    return false;
+  }
+}
+
+function cleanURL(
+  value
+) {
+
+  if (
+    !value ||
+    typeof value !== "string"
+  ) {
+    return "";
+  }
+
+  const url =
+    value.trim();
+
+  return validURL(url)
+    ? url
+    : "";
+}
+
+// ============================================================
+// DATE
+// ============================================================
+
+function parseOfficialDate(
+  value
+) {
+
+  if (!value) {
+    return null;
+  }
+
+  if (
+    value instanceof Date
+  ) {
+
+    const time =
+      value.getTime();
+
+    return Number.isFinite(
+      time
+    )
+      ? time
+      : null;
+  }
+
+  const text =
+    String(value)
+      .trim();
+
+  if (!text) {
+    return null;
+  }
+
+  // YYYY-MM-DD
+
+  if (
+    /^\d{4}-\d{2}-\d{2}$/
+      .test(text)
+  ) {
+
+    const date =
+      new Date(
+        `${text}T00:00:00Z`
+      );
+
+    const time =
+      date.getTime();
+
+    return Number.isFinite(
+      time
+    )
+      ? time
+      : null;
+  }
+
+  // MM/DD/YYYY
+
+  if (
+    /^\d{1,2}\/\d{1,2}\/\d{4}$/
+      .test(text)
+  ) {
+
+    const [
+      month,
+      day,
+      year
+    ] =
+      text
+        .split("/")
+        .map(Number);
+
+    const date =
+      new Date(
+        Date.UTC(
+          year,
+          month - 1,
+          day
+        )
+      );
+
+    const time =
+      date.getTime();
+
+    return Number.isFinite(
+      time
+    )
+      ? time
+      : null;
+  }
+
+  const parsed =
+    Date.parse(text);
+
+  return Number.isFinite(
+    parsed
+  )
+    ? parsed
+    : null;
+}
+
+// ============================================================
+// DESCRIPTION
+// ============================================================
+
+function cleanDescription(
+  value
+) {
+
+  if (!value) {
+    return "";
+  }
+
+  let text =
+    String(value);
+
+  text =
+    text.replace(
+      /<script[\s\S]*?<\/script>/gi,
+      " "
+    );
+
+  text =
+    text.replace(
+      /<style[\s\S]*?<\/style>/gi,
+      " "
+    );
+
+  text =
+    text.replace(
+      /<br\s*\/?>/gi,
+      "\n"
+    );
+
+  text =
+    text.replace(
+      /<\/p>/gi,
+      "\n\n"
+    );
+
+  text =
+    text.replace(
+      /<\/div>/gi,
+      "\n"
+    );
+
+  text =
+    text.replace(
+      /<[^>]+>/g,
+      " "
+    );
+
+  text =
+    text
+      .replace(
+        /&nbsp;/gi,
+        " "
+      )
+      .replace(
+        /&amp;/gi,
+        "&"
+      )
+      .replace(
+        /&quot;/gi,
+        '"'
+      )
+      .replace(
+        /&#39;/gi,
+        "'"
+      )
+      .replace(
+        /&lt;/gi,
+        "<"
+      )
+      .replace(
+        /&gt;/gi,
+        ">"
+      );
+
+  text =
+    text.replace(
+      /[ \t]+/g,
+      " "
+    );
+
+  text =
+    text.replace(
+      /\n\s*\n\s*\n+/g,
+      "\n\n"
+    );
+
+  return text.trim();
+}
+
+// ============================================================
+// SLUG / ID
+// ============================================================
+
+function makeID(
+  title,
+  url
+) {
 
   const text =
     `${title}|${url}`
@@ -944,16 +1465,393 @@ function makeID(title, url) {
         /^-+|-+$/g,
         ""
       )
-      .slice(0, 180);
+      .slice(
+        0,
+        160
+      );
 
   return text;
+}
+
+// ============================================================
+// HASH ID
+// ============================================================
+
+function hashString(
+  text
+) {
+
+  let hash = 0;
+
+  const value =
+    String(text);
+
+  for (
+    let i = 0;
+    i < value.length;
+    i++
+  ) {
+
+    hash =
+      (
+        (
+          hash << 5
+        ) -
+        hash +
+        value.charCodeAt(i)
+      ) |
+      0;
+  }
+
+  return Math.abs(
+    hash
+  ).toString(
+    36
+  );
+}
+
+// ============================================================
+// FETCH WITH TIMEOUT
+// ============================================================
+
+async function fetchWithTimeout(
+  url,
+  options = {}
+) {
+
+  const controller =
+    new AbortController();
+
+  const timeout =
+    setTimeout(
+      () =>
+        controller.abort(),
+      REQUEST_TIMEOUT
+    );
+
+  try {
+
+    return await fetch(
+      url,
+      {
+        ...options,
+
+        signal:
+          controller.signal,
+
+        headers: {
+
+          "User-Agent":
+            USER_AGENT,
+
+          Accept:
+            "*/*",
+
+          ...(options.headers ||
+            {})
+        }
+      }
+    );
+
+  } finally {
+
+    clearTimeout(
+      timeout
+    );
+  }
+}
+
+// ============================================================
+// FETCH JSON
+// ============================================================
+
+async function fetchJSON(
+  url,
+  options = {}
+) {
+
+  const response =
+    await fetchWithTimeout(
+      url,
+      {
+        ...options,
+
+        headers: {
+
+          Accept:
+            "application/json,text/plain,*/*",
+
+          ...(options.headers ||
+            {})
+        }
+      }
+    );
+
+  if (!response.ok) {
+
+    throw new Error(
+      `HTTP ${response.status} ${response.statusText}`
+    );
+  }
+
+  return await response.json();
+}
+
+// ============================================================
+// FETCH TEXT
+// ============================================================
+
+async function fetchText(
+  url,
+  options = {}
+) {
+
+  const response =
+    await fetchWithTimeout(
+      url,
+      {
+        ...options,
+
+        headers: {
+
+          Accept:
+            "text/xml,application/xml,text/html,*/*",
+
+          ...(options.headers ||
+            {})
+        }
+      }
+    );
+
+  if (!response.ok) {
+
+    throw new Error(
+      `HTTP ${response.status} ${response.statusText}`
+    );
+  }
+
+  return await response.text();
+}
+
+// ============================================================
+// XML HELPERS
+// ============================================================
+
+function decodeXML(
+  value
+) {
+
+  return String(
+    value || ""
+  )
+    .replace(
+      /<!CDATA\[([\s\S]*?)\]>/gi,
+      "$1"
+    )
+    .replace(
+      /&amp;/gi,
+      "&"
+    )
+    .replace(
+      /&quot;/gi,
+      '"'
+    )
+    .replace(
+      /&#39;/gi,
+      "'"
+    )
+    .replace(
+      /&lt;/gi,
+      "<"
+    )
+    .replace(
+      /&gt;/gi,
+      ">"
+    );
+}
+
+function extractXMLTags(
+  xml,
+  tag
+) {
+
+  const results = [];
+
+  const regex =
+    new RegExp(
+      `<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`,
+      "gi"
+    );
+
+  let match;
+
+  while (
+    (match =
+      regex.exec(xml))
+  ) {
+
+    results.push(
+      decodeXML(
+        match[1]
+      ).trim()
+    );
+  }
+
+  return results;
+}
+
+// ============================================================
+// RSS PARSER
+// ============================================================
+
+function parseRSS(
+  xml
+) {
+
+  const items = [];
+
+  const itemRegex =
+    /<(item|entry)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/gi;
+
+  let match;
+
+  while (
+    (match =
+      itemRegex.exec(xml))
+  ) {
+
+    const block =
+      match[2];
+
+    const title =
+      firstXMLValue(
+        block,
+        [
+          "title"
+        ]
+      );
+
+    const link =
+      firstXMLValue(
+        block,
+        [
+          "link"
+        ]
+      ) ||
+      extractAtomLink(
+        block
+      );
+
+    const description =
+      firstXMLValue(
+        block,
+        [
+          "description",
+          "summary",
+          "content"
+        ]
+      );
+
+    const pubDate =
+      firstXMLValue(
+        block,
+        [
+          "pubDate",
+          "published",
+          "updated",
+          "date"
+        ]
+      );
+
+    if (
+      title &&
+      link &&
+      validURL(link)
+    ) {
+
+      items.push({
+        title:
+          cleanDescription(
+            title
+          ),
+
+        url:
+          link.trim(),
+
+        description:
+          cleanDescription(
+            description
+          ),
+
+        publishedAt:
+          parseOfficialDate(
+            pubDate
+          )
+      });
+    }
+  }
+
+  return items;
+}
+
+function firstXMLValue(
+  xml,
+  tags
+) {
+
+  for (
+    const tag
+    of tags
+  ) {
+
+    const regex =
+      new RegExp(
+        `<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`,
+        "i"
+      );
+
+    const match =
+      xml.match(
+        regex
+      );
+
+    if (
+      match &&
+      match[1]
+    ) {
+
+      return decodeXML(
+        match[1]
+      ).trim();
+    }
+  }
+
+  return "";
+}
+
+function extractAtomLink(
+  xml
+) {
+
+  const match =
+    xml.match(
+      /<link[^>]+href=["']([^"']+)["'][^>]*\/?>/i
+    );
+
+  return match
+    ? decodeXML(
+        match[1]
+      )
+    : "";
 }
 
 // ============================================================
 // SAVE OPPORTUNITY
 // ============================================================
 
-async function saveOpportunity(data) {
+async function saveOpportunity(
+  data
+) {
 
   try {
 
@@ -963,41 +1861,100 @@ async function saveOpportunity(data) {
       ).trim();
 
     const url =
-      cleanURL(data.url);
+      cleanURL(
+        data.url
+      );
 
     if (!title) {
 
       console.log(
-        "⚠️ Skipped item: missing title"
+        "⚠️ SKIPPED: missing title"
       );
 
-      return false;
+      return {
+        saved: false,
+        reason:
+          "missing_title"
+      };
     }
 
     if (!url) {
 
       console.log(
-        "⚠️ Skipped item:",
-        title
+        "⚠️ SKIPPED:",
+        title,
+        "| invalid URL"
       );
 
-      console.log(
-        "Reason: missing/invalid URL"
-      );
-
-      return false;
+      return {
+        saved: false,
+        reason:
+          "invalid_url"
+      };
     }
 
-    const id =
-      makeID(title, url);
+    // --------------------------------------------------------
+    // PUBLICATION DATE
+    // --------------------------------------------------------
+    //
+    // IMPORTANT:
+    // Do NOT use Date.now() here as publication date.
+    //
+    // If source does not give publication date,
+    // publishedAt remains null.
+    //
+    // createdAt is separate.
+    //
 
     const publishedAt =
       parseOfficialDate(
         data.publishedAt
-      ) || Date.now();
+      );
 
-    const deadline =
-      data.deadline || "";
+    const deadlineAt =
+      parseOfficialDate(
+        data.deadline
+      );
+
+    const country =
+      normalizeCountry(
+        data.country
+      );
+
+    const countries =
+      Array.isArray(
+        data.countries
+      )
+        ? [
+            ...new Set(
+              data.countries
+                .map(
+                  normalizeCountry
+                )
+                .filter(Boolean)
+            )
+          ]
+        : [
+            country
+          ];
+
+    const source =
+      String(
+        data.source ||
+          "Unknown"
+      ).trim();
+
+    const id =
+      String(
+        data.id ||
+          makeID(
+            title,
+            url
+          )
+      );
+
+    const now =
+      Date.now();
 
     const opportunity = {
 
@@ -1016,30 +1973,20 @@ async function saveOpportunity(data) {
           data.category
         ),
 
-      country:
-        normalizeCountry(
-          data.country
+      country,
+
+      countryCode:
+        getCountryCode(
+          country
         ),
 
-      countries:
-        Array.isArray(data.countries)
-          ? [
-              ...new Set(
-                data.countries
-                  .map(normalizeCountry)
-              )
-            ]
-          : [
-              normalizeCountry(
-                data.country
-              )
-            ],
+      countries,
 
-      source:
-        String(
-          data.source ||
-          "Unknown"
-        ).trim(),
+      source,
+
+      sourceType:
+        data.sourceType ||
+        "opportunity",
 
       url,
 
@@ -1053,37 +2000,44 @@ async function saveOpportunity(data) {
           data.detailsUrl
         ) || url,
 
-      playUrl:
-        cleanURL(
-          data.playUrl
-        ) || url,
-
       image:
         cleanURL(
           data.image
         ),
 
-      deadline,
+      deadline:
+        data.deadline ||
+        "",
 
-      publishedAt,
+      deadlineAt:
+        deadlineAt || null,
+
+      publishedAt:
+        publishedAt || null,
 
       publishedDate:
-        new Date(
-          publishedAt
-        ).toISOString(),
+        publishedAt
+          ? new Date(
+              publishedAt
+            ).toISOString()
+          : null,
 
       createdAt:
         data.createdAt ||
-        Date.now(),
+        now,
 
       updatedAt:
-        Date.now(),
+        now,
 
-      active: true,
+      active:
+        data.active !== false,
 
       sourceStatus:
         data.sourceStatus ||
         "active",
+
+      verified:
+        data.verified !== false,
 
       views:
         Number(
@@ -1098,20 +2052,51 @@ async function saveOpportunity(data) {
 
     const ref =
       db
-        .ref("opportunities")
+        .ref(
+          "opportunities"
+        )
         .child(id);
 
     const existing =
-      await ref.once("value");
+      await ref.once(
+        "value"
+      );
 
-    if (existing.exists()) {
+    if (
+      existing.exists()
+    ) {
 
       const old =
-        existing.val() || {};
+        existing.val() ||
+        {};
+
+      // IMPORTANT:
+      // If source now gives no date,
+      // preserve old official date.
+
+      const finalPublishedAt =
+        publishedAt ||
+        parseOfficialDate(
+          old.publishedAt
+        ) ||
+        null;
+
+      const finalPublishedDate =
+        finalPublishedAt
+          ? new Date(
+              finalPublishedAt
+            ).toISOString()
+          : null;
 
       await ref.update({
 
         ...opportunity,
+
+        publishedAt:
+          finalPublishedAt,
+
+        publishedDate:
+          finalPublishedDate,
 
         createdAt:
           old.createdAt ||
@@ -1128,74 +2113,31 @@ async function saveOpportunity(data) {
           )
       });
 
-      console.log(
-        "🔄 UPDATED:",
-        title
-      );
-
-      console.log(
-        "   Category:",
-        opportunity.category
-      );
-
-      console.log(
-        "   Country:",
-        opportunity.country
-      );
-
-      console.log(
-        "   Published:",
-        opportunity.publishedDate
-      );
-
-      console.log(
-        "   Source:",
-        opportunity.source
-      );
-
-      return false;
+      return {
+        saved: false,
+        updated: true,
+        id
+      };
     }
 
     await ref.set(
       opportunity
     );
 
-    console.log("");
     console.log(
-      "✅ NEW OPPORTUNITY"
+      "✅ NEW:",
+      title,
+      "|",
+      country,
+      "|",
+      source
     );
 
-    console.log(
-      "Title:",
-      title
-    );
-
-    console.log(
-      "Category:",
-      opportunity.category
-    );
-
-    console.log(
-      "Country:",
-      opportunity.country
-    );
-
-    console.log(
-      "Published:",
-      opportunity.publishedDate
-    );
-
-    console.log(
-      "Source:",
-      opportunity.source
-    );
-
-    console.log(
-      "URL:",
-      opportunity.url
-    );
-
-    return true;
+    return {
+      saved: true,
+      updated: false,
+      id
+    };
 
   } catch (error) {
 
@@ -1204,19 +2146,339 @@ async function saveOpportunity(data) {
       error.message
     );
 
+    return {
+      saved: false,
+      reason:
+        "save_error"
+    };
+  }
+}
+
+// ============================================================
+// SAVE COUNTRY SOURCE
+// ============================================================
+//
+// This is NOT treated as a new opportunity.
+// This prevents fake "published today" records.
+//
+
+async function saveCountrySource(
+  data
+) {
+
+  try {
+
+    const country =
+      normalizeCountry(
+        data.country
+      );
+
+    const code =
+      getCountryCode(
+        country
+      );
+
+    if (!code) {
+      return false;
+    }
+
+    const sourceId =
+      hashString(
+        `${country}|${data.url}`
+      );
+
+    const record = {
+
+      id:
+        sourceId,
+
+      country,
+
+      countryCode:
+        code,
+
+      name:
+        data.name ||
+        country,
+
+      source:
+        data.source ||
+        "Unknown",
+
+      url:
+        cleanURL(
+          data.url
+        ),
+
+      type:
+        data.type ||
+        "official",
+
+      updatedAt:
+        Date.now()
+    };
+
+    if (!record.url) {
+      return false;
+    }
+
+    await db
+      .ref(
+        `countrySources/${code}/${sourceId}`
+      )
+      .set(
+        record
+      );
+
+    return true;
+
+  } catch (error) {
+
+    console.error(
+      "❌ country source error:",
+      error.message
+    );
+
     return false;
   }
 }
 
 // ============================================================
+// INITIALIZE ALL 195 COUNTRIES
+// ============================================================
+
+async function initializeCountries() {
+
+  console.log(
+    "🌍 Initializing country catalog..."
+  );
+
+  const updates = {};
+
+  for (
+    const country
+    of COUNTRIES
+  ) {
+
+    updates[
+      country.code
+    ] = {
+
+      code:
+        country.code,
+
+      name:
+        country.name,
+
+      opportunityCount:
+        0,
+
+      latestPublishedAt:
+        null,
+
+      latestPublishedDate:
+        null,
+
+      status:
+        "no_verified_updates_yet",
+
+      updatedAt:
+        Date.now()
+    };
+  }
+
+  await db
+    .ref("countries")
+    .update(
+      updates
+    );
+
+  console.log(
+    "🌍 Countries initialized:",
+    COUNTRIES.length
+  );
+}
+
+// ============================================================
+// UPDATE COUNTRY STATISTICS
+// ============================================================
+
+async function updateCountryStatistics() {
+
+  console.log(
+    "📊 Updating country statistics..."
+  );
+
+  try {
+
+    const snap =
+      await db
+        .ref(
+          "opportunities"
+        )
+        .once(
+          "value"
+        );
+
+    const stats = {};
+
+    for (
+      const country
+      of COUNTRIES
+    ) {
+
+      stats[
+        country.code
+      ] = {
+
+        code:
+          country.code,
+
+        name:
+          country.name,
+
+        opportunityCount:
+          0,
+
+        latestPublishedAt:
+          null,
+
+        latestPublishedDate:
+          null,
+
+        status:
+          "no_verified_updates_yet"
+      };
+    }
+
+    snap.forEach(
+      child => {
+
+        const item =
+          child.val();
+
+        if (!item) {
+          return;
+        }
+
+        if (
+          item.active === false
+        ) {
+          return;
+        }
+
+        const country =
+          normalizeCountry(
+            item.country
+          );
+
+        const code =
+          getCountryCode(
+            country
+          );
+
+        if (!code) {
+          return;
+        }
+
+        if (
+          !stats[code]
+        ) {
+          return;
+        }
+
+        stats[code]
+          .opportunityCount++;
+
+        const published =
+          parseOfficialDate(
+            item.publishedAt
+          );
+
+        if (
+          published &&
+          (
+            !stats[code]
+              .latestPublishedAt ||
+            published >
+              stats[code]
+                .latestPublishedAt
+          )
+        ) {
+
+          stats[code]
+            .latestPublishedAt =
+            published;
+
+          stats[code]
+            .latestPublishedDate =
+            new Date(
+              published
+            ).toISOString();
+        }
+
+        if (
+          stats[code]
+            .opportunityCount >
+          0
+        ) {
+
+          stats[code]
+            .status =
+            "has_updates";
+        }
+      }
+    );
+
+    const updates = {};
+
+    for (
+      const country
+      of COUNTRIES
+    ) {
+
+      updates[
+        country.code
+      ] = {
+
+        ...stats[
+          country.code
+        ],
+
+        updatedAt:
+          Date.now()
+      };
+    }
+
+    await db
+      .ref(
+        "countries"
+      )
+      .update(
+        updates
+      );
+
+    console.log(
+      "📊 Country statistics updated."
+    );
+
+  } catch (error) {
+
+    console.error(
+      "❌ Country statistics error:",
+      error.message
+    );
+  }
+}
+
+// ============================================================
 // GRANTS.GOV
-// ONLY POSTED + NOT EXPIRED
 // ============================================================
 
 async function checkGrantsGov() {
 
   console.log(
-    "💰 Checking Grants.gov ACTIVE opportunities..."
+    "💰 Checking Grants.gov POSTED opportunities..."
   );
 
   try {
@@ -1235,25 +2497,43 @@ async function checkGrantsGov() {
       keyword:
         "",
 
-      // VERY IMPORTANT
-      // DO NOT FETCH CLOSED/ARCHIVED
       oppStatuses:
-        "posted"
+        "posted",
+
+      agencies:
+        "",
+
+      eligibilities:
+        "",
+
+      fundingCategories:
+        "",
+
+      fundingInstruments:
+        "",
+
+      aln:
+        ""
     };
 
     const data =
       await fetchJSON(
         apiURL,
         {
-          method: "POST",
+
+          method:
+            "POST",
 
           headers: {
+
             "Content-Type":
               "application/json"
           },
 
           body:
-            JSON.stringify(body)
+            JSON.stringify(
+              body
+            )
         }
       );
 
@@ -1263,29 +2543,22 @@ async function checkGrantsGov() {
       [];
 
     console.log(
-      "📦 Grants.gov POSTED:",
+      "📦 Grants.gov:",
       opportunities.length
     );
 
-    let count = 0;
+    let savedCount = 0;
+
+    const activeGrantIds =
+      new Set();
 
     const now =
       Date.now();
-
-    // IDs currently active
-    const activeGrantIds =
-      new Set();
 
     for (
       const item
       of opportunities
     ) {
-
-      const title =
-        item.oppTitle ||
-        item.title ||
-        item.opportunityTitle ||
-        "Untitled Grant";
 
       const id =
         item.id ||
@@ -1293,29 +2566,14 @@ async function checkGrantsGov() {
         item.opportunityId;
 
       if (!id) {
-
-        console.log(
-          "⚠️ Skipped grant without ID:",
-          title
-        );
-
         continue;
       }
 
-      activeGrantIds.add(
-        String(id)
-      );
-
-      const url =
-        `https://www.grants.gov/search-results-detail/${id}`;
-
-      if (!validURL(url)) {
-        continue;
-      }
-
-      // --------------------------------------------------------
-      // STATUS
-      // --------------------------------------------------------
+      const title =
+        item.oppTitle ||
+        item.title ||
+        item.opportunityTitle ||
+        "Untitled Grant";
 
       const status =
         String(
@@ -1323,24 +2581,16 @@ async function checkGrantsGov() {
           item.status ||
           "posted"
         )
-        .toLowerCase()
-        .trim();
+          .toLowerCase()
+          .trim();
 
-      if (status !== "posted") {
-
-        console.log(
-          "⏭️ Skipped non-posted:",
-          title,
-          "|",
-          status
-        );
+      if (
+        status !==
+        "posted"
+      ) {
 
         continue;
       }
-
-      // --------------------------------------------------------
-      // DATES
-      // --------------------------------------------------------
 
       const openDate =
         item.openDate ||
@@ -1352,52 +2602,36 @@ async function checkGrantsGov() {
         item.closeDateString ||
         "";
 
-      const officialPublished =
+      const publishedAt =
         parseOfficialDate(
           openDate
+        ) ||
+        parseOfficialDate(
+          item.postingDate
+        ) ||
+        parseOfficialDate(
+          item.publishDate
         );
 
-      const officialDeadline =
+      const deadlineAt =
         parseOfficialDate(
           closeDate
         );
 
-      // --------------------------------------------------------
-      // EXPIRED
-      // --------------------------------------------------------
-
       if (
-        officialDeadline &&
-        officialDeadline < now
+        deadlineAt &&
+        deadlineAt < now
       ) {
-
-        console.log(
-          "⏭️ EXPIRED:",
-          title,
-          "| Deadline:",
-          closeDate
-        );
 
         continue;
       }
 
-      // --------------------------------------------------------
-      // COUNTRY
-      // --------------------------------------------------------
+      activeGrantIds.add(
+        String(id)
+      );
 
-      const detected =
-        detectCountry(
-          `${item.agencyName || ""} ${title}`
-        );
-
-      const country =
-        detected === "International"
-          ? "United States"
-          : detected;
-
-      // --------------------------------------------------------
-      // DESCRIPTION
-      // --------------------------------------------------------
+      const url =
+        `https://www.grants.gov/search-results-detail/${id}`;
 
       const description =
         item.description ||
@@ -1409,34 +2643,28 @@ async function checkGrantsGov() {
           "the U.S. Government"
         }.`;
 
-      // --------------------------------------------------------
-      // PUBLISHED DATE
-      //
-      // DO NOT USE Date.now() IF SOURCE DATE EXISTS
-      // --------------------------------------------------------
-
-      const publishedAt =
-        officialPublished ||
-        parseOfficialDate(
-          item.postingDate
-        ) ||
-        parseOfficialDate(
-          item.publishDate
+      const detected =
+        detectCountry(
+          [
+            item.agencyName,
+            title,
+            description
+          ]
+            .filter(Boolean)
+            .join(" ")
         );
 
-      if (!publishedAt) {
+      const country =
+        detected ===
+        "International"
+          ? "United States"
+          : detected;
 
-        console.log(
-          "⚠️ No official publication date:",
-          title
-        );
-
-        // We still save it, but clearly
-        // use current timestamp only as fallback.
-      }
-
-      const saved =
+      const result =
         await saveOpportunity({
+
+          id:
+            `grants-gov-${id}`,
 
           title,
 
@@ -1453,6 +2681,9 @@ async function checkGrantsGov() {
           source:
             "Grants.gov",
 
+          sourceType:
+            "government_grant",
+
           url,
 
           applyUrl:
@@ -1461,42 +2692,35 @@ async function checkGrantsGov() {
           detailsUrl:
             url,
 
-          playUrl:
-            url,
-
           deadline:
             closeDate,
 
-          publishedAt:
-            publishedAt ||
-            Date.now(),
+          publishedAt,
 
           sourceStatus:
-            "posted"
+            "posted",
+
+          verified:
+            true
         });
 
-      if (saved) {
-        count++;
+      if (
+        result.saved
+      ) {
+        savedCount++;
       }
     }
-
-    // --------------------------------------------------------
-    // CLEAN OLD GRANTS.GOV RECORDS
-    //
-    // This removes old Grants.gov records that are no longer
-    // in the current POSTED result set.
-    // --------------------------------------------------------
 
     await cleanupOldGrants(
       activeGrantIds
     );
 
     console.log(
-      "✅ Grants.gov active saved:",
-      count
+      "✅ Grants.gov saved:",
+      savedCount
     );
 
-    return count;
+    return savedCount;
 
   } catch (error) {
 
@@ -1521,8 +2745,12 @@ async function cleanupOldGrants(
 
     const snap =
       await db
-        .ref("opportunities")
-        .once("value");
+        .ref(
+          "opportunities"
+        )
+        .once(
+          "value"
+        );
 
     if (!snap.exists()) {
       return;
@@ -1530,87 +2758,73 @@ async function cleanupOldGrants(
 
     const updates = {};
 
-    snap.forEach(child => {
+    snap.forEach(
+      child => {
 
-      const item =
-        child.val();
+        const item =
+          child.val();
 
-      if (!item) return;
+        if (!item) {
+          return;
+        }
 
-      if (
-        item.source !==
-        "Grants.gov"
-      ) {
-        return;
+        if (
+          item.source !==
+          "Grants.gov"
+        ) {
+          return;
+        }
+
+        const match =
+          String(
+            item.id ||
+              ""
+          )
+            .match(
+              /grants-gov-(\d+)/
+            );
+
+        if (!match) {
+          return;
+        }
+
+        const id =
+          String(
+            match[1]
+          );
+
+        if (
+          !activeGrantIds.has(
+            id
+          )
+        ) {
+
+          updates[
+            child.key
+          ] = null;
+        }
       }
-
-      const url =
-        String(
-          item.url || ""
-        );
-
-      const match =
-        url.match(
-          /search-results-detail\/(\d+)/i
-        );
-
-      if (!match) {
-
-        // If it is an old Grants.gov
-        // record but we cannot identify
-        // its official ID, remove it.
-
-        console.log(
-          "🗑️ Removing unidentified old Grants.gov record:",
-          item.title
-        );
-
-        updates[
-          child.key
-        ] = null;
-
-        return;
-      }
-
-      const grantId =
-        String(match[1]);
-
-      if (
-        !activeGrantIds.has(
-          grantId
-        )
-      ) {
-
-        console.log(
-          "🗑️ Removing no-longer-posted grant:",
-          item.title
-        );
-
-        updates[
-          child.key
-        ] = null;
-      }
-    });
+    );
 
     if (
-      Object.keys(updates)
-        .length
+      Object.keys(
+        updates
+      ).length
     ) {
 
       await db
-        .ref("opportunities")
-        .update(updates);
-
-      console.log(
-        "🧹 Old Grants.gov removed:",
-        Object.keys(updates).length
-      );
+        .ref(
+          "opportunities"
+        )
+        .update(
+          updates
+        );
     }
 
   } catch (error) {
 
     console.error(
-      "❌ Grants cleanup error:",
+      "❌ Grants cleanup:",
       error.message
     );
   }
@@ -1623,7 +2837,7 @@ async function cleanupOldGrants(
 async function checkRemotive() {
 
   console.log(
-    "🌍 Checking Remotive Work Opportunities..."
+    "💼 Checking Remotive..."
   );
 
   try {
@@ -1637,11 +2851,11 @@ async function checkRemotive() {
       data?.jobs || [];
 
     console.log(
-      "📦 Remotive:",
+      "📦 Remotive jobs:",
       jobs.length
     );
 
-    let count = 0;
+    let savedCount = 0;
 
     for (
       const job
@@ -1660,68 +2874,65 @@ async function checkRemotive() {
         continue;
       }
 
-      // --------------------------------------------------------
-      // OFFICIAL REMOTIVE PUBLICATION DATE
-      // --------------------------------------------------------
-
       const publishedAt =
         parseOfficialDate(
           job.publication_date
-        ) ||
-        parseOfficialDate(
-          job.publicationDate
         );
 
-      // --------------------------------------------------------
-      // COUNTRY
-      // --------------------------------------------------------
+      const location =
+        job.candidate_required_location ||
+        "Worldwide";
 
-      const locationText =
-        [
-          job.candidate_required_location,
-          job.job_type,
-          job.title,
-          job.description
-        ]
-        .filter(Boolean)
-        .join(" ");
+      const detected =
+        detectCountry(
+          [
+            location,
+            job.title
+          ]
+            .filter(Boolean)
+            .join(" ")
+        );
 
       const country =
-        detectCountry(
-          locationText
-        );
-
-      // --------------------------------------------------------
-      // DESCRIPTION
-      // --------------------------------------------------------
+        detected ===
+        "International"
+          ? "International"
+          : detected;
 
       const description =
         cleanDescription(
           job.description
-        ) ||
-        "Remote work opportunity available through Remotive.";
+        );
 
-      const saved =
+      const result =
         await saveOpportunity({
+
+          id:
+            `remotive-${job.id}`,
 
           title:
             job.title ||
-            "Remote Work Opportunity",
+            "Remote Job",
 
           description,
 
           category:
+            job.category ||
             "Work Opportunities",
 
           country,
 
           countries:
-            country === "International"
+            country ===
+            "International"
               ? ["International"]
               : [country],
 
           source:
             "Remotive",
+
+          sourceType:
+            "remote_job",
 
           url,
 
@@ -1731,33 +2942,33 @@ async function checkRemotive() {
           detailsUrl:
             url,
 
-          playUrl:
-            url,
-
           image:
             cleanURL(
               job.company_logo
             ),
 
-          publishedAt:
-            publishedAt ||
-            Date.now(),
+          publishedAt,
 
           sourceStatus:
-            "active"
+            "active",
+
+          verified:
+            true
         });
 
-      if (saved) {
-        count++;
+      if (
+        result.saved
+      ) {
+        savedCount++;
       }
     }
 
     console.log(
       "✅ Remotive saved:",
-      count
+      savedCount
     );
 
-    return count;
+    return savedCount;
 
   } catch (error) {
 
@@ -1771,365 +2982,516 @@ async function checkRemotive() {
 }
 
 // ============================================================
-// INTERNATIONAL SOURCES
+// OFFICIAL COUNTRY SOURCES
+// ============================================================
+//
+// These are SOURCE DIRECTORIES, not fake opportunities.
+//
+// This lets the frontend show:
+// "Official sources available for this country"
+// without pretending that a source homepage was
+// published today.
+//
+
+const OFFICIAL_SOURCES = [
+
+  {
+    country:
+      "Tanzania",
+
+    name:
+      "Tanzania Government",
+
+    source:
+      "Government of Tanzania",
+
+    url:
+      "https://www.tanzania.go.tz/",
+
+    type:
+      "official"
+  },
+
+  {
+    country:
+      "Tanzania",
+
+    name:
+      "Ajira Portal",
+
+    source:
+      "Ajira Tanzania",
+
+    url:
+      "https://www.ajira.go.tz/",
+
+    type:
+      "jobs"
+  },
+
+  {
+    country:
+      "Tanzania",
+
+    name:
+      "HESLB",
+
+    source:
+      "HESLB Tanzania",
+
+    url:
+      "https://www.heslb.go.tz/",
+
+    type:
+      "education"
+  },
+
+  {
+    country:
+      "Kenya",
+
+    name:
+      "Kenya Government",
+
+    source:
+      "Government of Kenya",
+
+    url:
+      "https://www.mygov.go.ke/",
+
+    type:
+      "official"
+  },
+
+  {
+    country:
+      "United States",
+
+    name:
+      "USA Government",
+
+    source:
+      "USA.gov",
+
+    url:
+      "https://www.usa.gov/",
+
+    type:
+      "official"
+  },
+
+  {
+    country:
+      "United Kingdom",
+
+    name:
+      "UK Government",
+
+    source:
+      "GOV.UK",
+
+    url:
+      "https://www.gov.uk/",
+
+    type:
+      "official"
+  },
+
+  {
+    country:
+      "Canada",
+
+    name:
+      "Government of Canada",
+
+    source:
+      "Government of Canada",
+
+    url:
+      "https://www.canada.ca/",
+
+    type:
+      "official"
+  },
+
+  {
+    country:
+      "Australia",
+
+    name:
+      "Australian Government",
+
+    source:
+      "Australian Government",
+
+    url:
+      "https://www.australia.gov.au/",
+
+    type:
+      "official"
+  },
+
+  {
+    country:
+      "India",
+
+    name:
+      "Government of India",
+
+    source:
+      "Government of India",
+
+    url:
+      "https://www.india.gov.in/",
+
+    type:
+      "official"
+  },
+
+  {
+    country:
+      "South Africa",
+
+    name:
+      "South African Government",
+
+    source:
+      "South African Government",
+
+    url:
+      "https://www.gov.za/",
+
+    type:
+      "official"
+  },
+
+  {
+    country:
+      "Nigeria",
+
+    name:
+      "Nigeria Government",
+
+    source:
+      "Federal Republic of Nigeria",
+
+    url:
+      "https://www.gov.ng/",
+
+    type:
+      "official"
+  },
+
+  {
+    country:
+      "Ghana",
+
+    name:
+      "Ghana Government",
+
+    source:
+      "Government of Ghana",
+
+    url:
+      "https://www.ghana.gov.gh/",
+
+    type:
+      "official"
+  },
+
+  {
+    country:
+      "Rwanda",
+
+    name:
+      "Rwanda Government",
+
+    source:
+      "Government of Rwanda",
+
+    url:
+      "https://www.gov.rw/",
+
+    type:
+      "official"
+  },
+
+  {
+    country:
+      "Uganda",
+
+    name:
+      "Uganda Government",
+
+    source:
+      "Government of Uganda",
+
+    url:
+      "https://www.gou.go.ug/",
+
+    type:
+      "official"
+  },
+
+  {
+    country:
+      "France",
+
+    name:
+      "French Government",
+
+    source:
+      "Government of France",
+
+    url:
+      "https://www.gouvernement.fr/",
+
+    type:
+      "official"
+  },
+
+  {
+    country:
+      "Germany",
+
+    name:
+      "German Government",
+
+    source:
+      "Federal Government of Germany",
+
+    url:
+      "https://www.bundesregierung.de/",
+
+    type:
+      "official"
+  },
+
+  {
+    country:
+      "Japan",
+
+    name:
+      "Government of Japan",
+
+    source:
+      "Government of Japan",
+
+    url:
+      "https://www.japan.go.jp/",
+
+    type:
+      "official"
+  },
+
+  {
+    country:
+      "South Korea",
+
+    name:
+      "Korea Government",
+
+    source:
+      "Republic of Korea",
+
+    url:
+      "https://www.korea.net/",
+
+    type:
+      "official"
+  },
+
+  {
+    country:
+      "United Arab Emirates",
+
+    name:
+      "UAE Government",
+
+    source:
+      "UAE Government",
+
+    url:
+      "https://u.ae/",
+
+    type:
+      "official"
+  },
+
+  {
+    country:
+      "Saudi Arabia",
+
+    name:
+      "Saudi Government",
+
+    source:
+      "Saudi Government",
+
+    url:
+      "https://www.my.gov.sa/",
+
+    type:
+      "official"
+  }
+];
+
+// ============================================================
+// SAVE OFFICIAL SOURCE DIRECTORY
 // ============================================================
 
-async function checkInternationalSources() {
+async function saveOfficialSources() {
 
   console.log(
-    "🌐 Checking International Opportunities..."
+    "🏛️ Saving official source directory..."
   );
-
-  const sources = [
-
-    {
-      name:
-        "UN Careers",
-
-      title:
-        "United Nations Careers",
-
-      category:
-        "Work Opportunities",
-
-      description:
-        "Official United Nations careers portal for international jobs and career opportunities.",
-
-      url:
-        "https://careers.un.org/"
-    },
-
-    {
-      name:
-        "World Bank Careers",
-
-      title:
-        "World Bank Careers",
-
-      category:
-        "Work Opportunities",
-
-      description:
-        "Official World Bank careers portal for international employment opportunities.",
-
-      url:
-        "https://www.worldbank.org/en/about/careers"
-    },
-
-    {
-      name:
-        "UNICEF Careers",
-
-      title:
-        "UNICEF Careers",
-
-      category:
-        "Work Opportunities",
-
-      description:
-        "Official UNICEF careers portal for jobs and professional opportunities.",
-
-      url:
-        "https://jobs.unicef.org/"
-    },
-
-    {
-      name:
-        "WHO Careers",
-
-      title:
-        "World Health Organization Careers",
-
-      category:
-        "Work Opportunities",
-
-      description:
-        "Official WHO careers portal for global employment opportunities.",
-
-      url:
-        "https://www.who.int/careers"
-    },
-
-    {
-      name:
-        "African Union Careers",
-
-      title:
-        "African Union Careers",
-
-      category:
-        "Work Opportunities",
-
-      description:
-        "Official African Union careers portal for continental employment opportunities.",
-
-      url:
-        "https://au.int/en/careers"
-    }
-  ];
-
-  let total = 0;
 
   for (
     const source
-    of sources
+    of OFFICIAL_SOURCES
   ) {
 
-    try {
-
-      const saved =
-        await saveOpportunity({
-
-          title:
-            source.title,
-
-          description:
-            source.description,
-
-          category:
-            source.category,
-
-          country:
-            "International",
-
-          countries:
-            ["International"],
-
-          source:
-            source.name,
-
-          url:
-            source.url,
-
-          applyUrl:
-            source.url,
-
-          detailsUrl:
-            source.url,
-
-          playUrl:
-            source.url,
-
-          publishedAt:
-            Date.now(),
-
-          sourceStatus:
-            "active"
-        });
-
-      if (saved) {
-        total++;
-      }
-
-    } catch (error) {
-
-      console.error(
-        `❌ ${source.name}:`,
-        error.message
-      );
-    }
+    await saveCountrySource(
+      source
+    );
   }
 
   console.log(
-    "📦 International sources:",
-    total
+    "🏛️ Official sources saved."
   );
-
-  return total;
 }
 
 // ============================================================
-// HESLB
+// GOOGLE NEWS RSS COUNTRY DISCOVERY
 // ============================================================
+//
+// This does NOT claim that the result is an official
+// government announcement.
+//
+// It is marked:
+// sourceType = "news_discovery"
+//
+// The actual publisher URL is kept.
+// Publication date comes from RSS.
+//
 
-async function checkHESLB() {
-
-  console.log(
-    "🇹🇿 Checking HESLB..."
-  );
-
-  const items = [
-
-    {
-      title:
-        "HESLB Official Website",
-
-      description:
-        "Official Higher Education Students' Loans Board website. Check current loan application information, announcements and official updates.",
-
-      url:
-        "https://www.heslb.go.tz/"
-    },
-
-    {
-      title:
-        "HESLB Online Application Information",
-
-      description:
-        "Official HESLB information for students seeking higher education loans and related application announcements.",
-
-      url:
-        "https://www.heslb.go.tz/"
-    }
-  ];
-
-  let count = 0;
-
-  for (
-    const item
-    of items
-  ) {
-
-    const saved =
-      await saveOpportunity({
-
-        title:
-          item.title,
-
-        description:
-          item.description,
-
-        category:
-          "Education",
-
-        country:
-          "Tanzania",
-
-        source:
-          "HESLB Tanzania",
-
-        url:
-          item.url,
-
-        applyUrl:
-          item.url,
-
-        detailsUrl:
-          item.url,
-
-        playUrl:
-          item.url,
-
-        publishedAt:
-          Date.now(),
-
-        sourceStatus:
-          "official"
-      });
-
-    if (saved) {
-      count++;
-    }
-  }
-
-  console.log(
-    "📦 HESLB:",
-    count
-  );
-
-  return count;
-}
-
-// ============================================================
-// AJIRA / PSRS
-// ============================================================
-
-async function checkAjira() {
-
-  console.log(
-    "🇹🇿 Checking Ajira / PSRS..."
-  );
+async function checkCountryNews(
+  country
+) {
 
   try {
 
-    const officialURL =
-      "https://www.ajira.go.tz/";
+    const query =
+      encodeURIComponent(
+        `"${country.name}" jobs OR scholarship OR grant OR internship OR opportunity OR announcement`
+      );
 
-    const items = [
+    const rssURL =
+      `https://news.google.com/rss/search?q=${query}&hl=en-US&gl=US&ceid=US:en`;
 
-      {
-        title:
-          "Ajira Portal — Tanzania Public Service Jobs",
+    const xml =
+      await fetchText(
+        rssURL
+      );
 
-        description:
-          "Official Tanzania public service recruitment portal. Check current government job vacancies and recruitment announcements.",
+    const items =
+      parseRSS(
+        xml
+      )
+        .slice(
+          0,
+          MAX_RSS_ITEMS_PER_COUNTRY
+        );
 
-        url:
-          officialURL
-      },
-
-      {
-        title:
-          "Public Service Recruitment Secretariat — Jobs",
-
-        description:
-          "Official Public Service Recruitment Secretariat information and recruitment announcements for Tanzania.",
-
-        url:
-          officialURL
-      }
-    ];
-
-    let count = 0;
+    let saved = 0;
 
     for (
       const item
       of items
     ) {
 
-      const saved =
+      const detected =
+        detectCountry(
+          `${item.title} ${item.description}`
+        );
+
+      // Do not force another country
+      // into this country's record.
+
+      if (
+        detected !==
+          "International" &&
+        detected !==
+          country.name
+      ) {
+
+        continue;
+      }
+
+      const result =
         await saveOpportunity({
+
+          id:
+            `rss-${hashString(
+              item.url
+            )}`,
 
           title:
             item.title,
 
           description:
-            item.description,
+            item.description ||
+            `Latest public information related to ${country.name}.`,
 
           category:
-            "Work Opportunities",
+            detectNewsCategory(
+              item.title
+            ),
 
           country:
-            "Tanzania",
+            country.name,
+
+          countries:
+            [country.name],
 
           source:
-            "Ajira / PSRS",
+            "Google News / Publisher",
+
+          sourceType:
+            "news_discovery",
 
           url:
-            item.url,
-
-          applyUrl:
             item.url,
 
           detailsUrl:
             item.url,
 
-          playUrl:
+          applyUrl:
             item.url,
 
           publishedAt:
-            Date.now(),
+            item.publishedAt,
 
           sourceStatus:
-            "official"
+            "discovered",
+
+          verified:
+            false
         });
 
-      if (saved) {
-        count++;
+      if (
+        result.saved
+      ) {
+        saved++;
       }
     }
 
-    console.log(
-      "📦 Ajira / PSRS:",
-      count
-    );
-
-    return count;
+    return saved;
 
   } catch (error) {
 
     console.error(
-      "❌ Ajira ERROR:",
+      `❌ Country news ${country.name}:`,
       error.message
     );
 
@@ -2138,154 +3500,225 @@ async function checkAjira() {
 }
 
 // ============================================================
-// GLOBAL EVENTS / NEWS
+// CATEGORY FROM NEWS TITLE
 // ============================================================
 
-async function checkGlobalEvents() {
+function detectNewsCategory(
+  title
+) {
 
-  console.log(
-    "📰 Checking Global News & Events..."
-  );
+  const value =
+    String(
+      title || ""
+    )
+      .toLowerCase();
 
-  const events = [
-
-    {
-      title:
-        "United Nations — Global Events",
-
-      description:
-        "Official United Nations events, meetings, announcements and international activities.",
-
-      category:
-        "Event",
-
-      url:
-        "https://www.un.org/en/events"
-    },
-
-    {
-      title:
-        "World Health Organization — News",
-
-      description:
-        "Official WHO global health news, announcements and important updates.",
-
-      category:
-        "News",
-
-      url:
-        "https://www.who.int/news"
-    },
-
-    {
-      title:
-        "World Bank — News",
-
-      description:
-        "Official World Bank global development news, announcements and updates.",
-
-      category:
-        "News",
-
-      url:
-        "https://www.worldbank.org/en/news"
-    },
-
-    {
-      title:
-        "African Union — News",
-
-      description:
-        "Official African Union continental news, events and announcements.",
-
-      category:
-        "News",
-
-      url:
-        "https://au.int/en/news"
-    }
-  ];
-
-  let count = 0;
-
-  for (
-    const event
-    of events
+  if (
+    value.includes("scholar") ||
+    value.includes("fellowship") ||
+    value.includes("education") ||
+    value.includes("university")
   ) {
 
-    const saved =
-      await saveOpportunity({
-
-        title:
-          event.title,
-
-        description:
-          event.description,
-
-        category:
-          event.category,
-
-        country:
-          "International",
-
-        source:
-          "Official Global Source",
-
-        url:
-          event.url,
-
-        detailsUrl:
-          event.url,
-
-        applyUrl:
-          event.url,
-
-        playUrl:
-          event.url,
-
-        publishedAt:
-          Date.now(),
-
-        sourceStatus:
-          "official"
-      });
-
-    if (saved) {
-      count++;
-    }
+    return "Education";
   }
 
-  console.log(
-    "📦 Global News / Events:",
-    count
-  );
+  if (
+    value.includes("grant") ||
+    value.includes("funding")
+  ) {
 
-  return count;
+    return "Grant";
+  }
+
+  if (
+    value.includes("job") ||
+    value.includes("career") ||
+    value.includes("recruit")
+  ) {
+
+    return "Work Opportunities";
+  }
+
+  if (
+    value.includes("intern")
+  ) {
+
+    return "Internship";
+  }
+
+  if (
+    value.includes("event") ||
+    value.includes("conference") ||
+    value.includes("summit")
+  ) {
+
+    return "Event";
+  }
+
+  return "News";
 }
 
 // ============================================================
-// REMOVE EXPIRED
+// COUNTRY BATCH
+// ============================================================
+//
+// 195 countries every 30 minutes would create unnecessary
+// traffic.
+//
+// Each run processes a batch.
+//
+// COUNTRY_BATCH_SIZE can be changed through environment.
+// Default = 20.
+//
+// With 20 countries/run:
+// 195 countries are covered roughly every 5 hours.
+//
+// ============================================================
+
+const COUNTRY_BATCH_SIZE =
+  Number(
+    process.env.COUNTRY_BATCH_SIZE ||
+      20
+  );
+
+async function checkCountryBatch() {
+
+  const stateRef =
+    db.ref(
+      "botState/countryCursor"
+    );
+
+  const snapshot =
+    await stateRef.once(
+      "value"
+    );
+
+  let cursor =
+    Number(
+      snapshot.val() ||
+        0
+    );
+
+  if (
+    cursor < 0 ||
+    cursor >=
+      COUNTRIES.length
+  ) {
+
+    cursor = 0;
+  }
+
+  const selected =
+    [];
+
+  for (
+    let i = 0;
+    i <
+      COUNTRY_BATCH_SIZE;
+    i++
+  ) {
+
+    const index =
+      (
+        cursor + i
+      ) %
+      COUNTRIES.length;
+
+    selected.push(
+      COUNTRIES[
+        index
+      ]
+    );
+  }
+
+  console.log(
+    "🌍 Country batch:",
+    selected
+      .map(
+        c => c.name
+      )
+      .join(", ")
+  );
+
+  let total = 0;
+
+  for (
+    const country
+    of selected
+  ) {
+
+    total +=
+      await checkCountryNews(
+        country
+      );
+
+    // Small delay
+    // prevents hammering RSS.
+
+    await sleep(
+      500
+    );
+  }
+
+  const nextCursor =
+    (
+      cursor +
+      selected.length
+    ) %
+    COUNTRIES.length;
+
+  await stateRef.set(
+    nextCursor
+  );
+
+  console.log(
+    "🌍 Country batch saved:",
+    total
+  );
+
+  return total;
+}
+
+// ============================================================
+// SLEEP
+// ============================================================
+
+function sleep(
+  ms
+) {
+
+  return new Promise(
+    resolve =>
+      setTimeout(
+        resolve,
+        ms
+      )
+  );
+}
+
+// ============================================================
+// CLEAN EXPIRED
 // ============================================================
 
 async function removeExpired() {
 
   console.log(
-    "🧹 Checking expired opportunities..."
+    "🧹 Removing expired opportunities..."
   );
 
   try {
 
     const snap =
       await db
-        .ref("opportunities")
-        .once("value");
+        .ref(
+          "opportunities"
+        )
+        .once(
+          "value"
+        );
 
     if (!snap.exists()) {
-
-      console.log(
-        "🧹 Nothing to clean."
-      );
-
       return;
     }
 
@@ -2294,82 +3727,83 @@ async function removeExpired() {
     const now =
       Date.now();
 
-    snap.forEach(child => {
+    snap.forEach(
+      child => {
 
-      const item =
-        child.val();
+        const item =
+          child.val();
 
-      if (!item) return;
+        if (!item) {
+          return;
+        }
 
-      if (!item.deadline) return;
+        const deadline =
+          parseOfficialDate(
+            item.deadlineAt ||
+              item.deadline
+          );
 
-      const deadline =
-        parseOfficialDate(
-          item.deadline
-        );
+        if (
+          deadline &&
+          deadline < now
+        ) {
 
-      if (
-        deadline &&
-        deadline < now
-      ) {
+          updates[
+            child.key
+          ] = null;
 
-        console.log(
-          "🗑️ Removing expired:",
-          item.title
-        );
-
-        updates[
-          child.key
-        ] = null;
+          console.log(
+            "🗑️ EXPIRED:",
+            item.title
+          );
+        }
       }
-    });
+    );
 
     if (
-      Object.keys(updates)
-        .length
+      Object.keys(
+        updates
+      ).length
     ) {
 
       await db
-        .ref("opportunities")
-        .update(updates);
-
-      console.log(
-        "🧹 Removed:",
-        Object.keys(updates).length
-      );
-
-    } else {
-
-      console.log(
-        "🧹 Removed 0 expired opportunities."
-      );
+        .ref(
+          "opportunities"
+        )
+        .update(
+          updates
+        );
     }
 
   } catch (error) {
 
     console.error(
-      "❌ Expiry cleanup error:",
+      "❌ Expiry cleanup:",
       error.message
     );
   }
 }
 
 // ============================================================
-// REMOVE INVALID URLS
+// CLEAN INVALID URLS
 // ============================================================
 
 async function removeInvalidURLs() {
 
   console.log(
-    "🔗 Checking opportunity URLs..."
+    "🔗 Checking URLs..."
   );
 
   try {
 
     const snap =
       await db
-        .ref("opportunities")
-        .once("value");
+        .ref(
+          "opportunities"
+        )
+        .once(
+          "value"
+        );
 
     if (!snap.exists()) {
       return;
@@ -2377,67 +3811,74 @@ async function removeInvalidURLs() {
 
     const updates = {};
 
-    snap.forEach(child => {
+    snap.forEach(
+      child => {
 
-      const item =
-        child.val();
+        const item =
+          child.val();
 
-      if (!item) return;
+        if (!item) {
+          return;
+        }
 
-      if (
-        !validURL(item.url)
-      ) {
+        if (
+          !validURL(
+            item.url
+          )
+        ) {
 
-        console.log(
-          "🗑️ Removing invalid URL:",
-          item.title
-        );
+          updates[
+            child.key
+          ] = null;
 
-        updates[
-          child.key
-        ] = null;
+          console.log(
+            "🗑️ INVALID URL:",
+            item.title
+          );
+        }
       }
-    });
+    );
 
     if (
-      Object.keys(updates)
-        .length
+      Object.keys(
+        updates
+      ).length
     ) {
 
       await db
-        .ref("opportunities")
-        .update(updates);
+        .ref(
+          "opportunities"
+        )
+        .update(
+          updates
+        );
     }
-
-    console.log(
-      "🔗 URL check complete."
-    );
 
   } catch (error) {
 
     console.error(
-      "❌ URL cleanup error:",
+      "❌ URL cleanup:",
       error.message
     );
   }
 }
 
 // ============================================================
-// REMOVE OLD GRANTS WITHOUT DEADLINE
+// CLEAN VERY OLD NEWS DISCOVERY
 // ============================================================
 
-async function cleanupSuspiciousOldGrants() {
-
-  console.log(
-    "🧹 Checking suspicious old Grants.gov records..."
-  );
+async function cleanupOldNews() {
 
   try {
 
     const snap =
       await db
-        .ref("opportunities")
-        .once("value");
+        .ref(
+          "opportunities"
+        )
+        .once(
+          "value"
+        );
 
     if (!snap.exists()) {
       return;
@@ -2448,121 +3889,92 @@ async function cleanupSuspiciousOldGrants() {
     const now =
       Date.now();
 
-    snap.forEach(child => {
+    const maxAge =
+      DAYS_TO_KEEP_NEWS *
+      24 *
+      60 *
+      60 *
+      1000;
 
-      const item =
-        child.val();
+    snap.forEach(
+      child => {
 
-      if (!item) return;
+        const item =
+          child.val();
 
-      if (
-        item.source !==
-        "Grants.gov"
-      ) {
-        return;
+        if (!item) {
+          return;
+        }
+
+        if (
+          item.sourceType !==
+          "news_discovery"
+        ) {
+          return;
+        }
+
+        const published =
+          parseOfficialDate(
+            item.publishedAt
+          );
+
+        if (
+          published &&
+          now - published >
+            maxAge
+        ) {
+
+          updates[
+            child.key
+          ] = null;
+        }
       }
-
-      const published =
-        parseOfficialDate(
-          item.publishedAt
-        );
-
-      const deadline =
-        parseOfficialDate(
-          item.deadline
-        );
-
-      // If it has a deadline and
-      // deadline is passed.
-
-      if (
-        deadline &&
-        deadline < now
-      ) {
-
-        console.log(
-          "🗑️ Old grant deadline passed:",
-          item.title
-        );
-
-        updates[
-          child.key
-        ] = null;
-
-        return;
-      }
-
-      // If an old Grants.gov record
-      // has no deadline and was published
-      // long ago, remove it.
-      //
-      // 180 days safety period.
-
-      const days180 =
-        180 *
-        24 *
-        60 *
-        60 *
-        1000;
-
-      if (
-        published &&
-        now - published >
-          days180 &&
-        !deadline
-      ) {
-
-        console.log(
-          "🗑️ Suspicious old grant:",
-          item.title
-        );
-
-        updates[
-          child.key
-        ] = null;
-      }
-    });
+    );
 
     if (
-      Object.keys(updates)
-        .length
+      Object.keys(
+        updates
+      ).length
     ) {
 
       await db
-        .ref("opportunities")
-        .update(updates);
-
-      console.log(
-        "🧹 Suspicious grants removed:",
-        Object.keys(updates).length
-      );
+        .ref(
+          "opportunities"
+        )
+        .update(
+          updates
+        );
     }
 
   } catch (error) {
 
     console.error(
-      "❌ Old grants cleanup error:",
+      "❌ Old news cleanup:",
       error.message
     );
   }
 }
 
 // ============================================================
-// NORMALIZE EXISTING DATA
+// NORMALIZE DATABASE
 // ============================================================
 
 async function normalizeExistingData() {
 
   console.log(
-    "🌍 Normalizing existing database..."
+    "🔧 Normalizing existing data..."
   );
 
   try {
 
     const snap =
       await db
-        .ref("opportunities")
-        .once("value");
+        .ref(
+          "opportunities"
+        )
+        .once(
+          "value"
+        );
 
     if (!snap.exists()) {
       return;
@@ -2570,348 +3982,1097 @@ async function normalizeExistingData() {
 
     const updates = {};
 
-    snap.forEach(child => {
+    snap.forEach(
+      child => {
 
-      const item =
-        child.val();
+        const item =
+          child.val();
 
-      if (!item) return;
+        if (!item) {
+          return;
+        }
 
-      const country =
-        normalizeCountry(
-          item.country
-        );
+        const country =
+          normalizeCountry(
+            item.country
+          );
 
-      let countries;
-
-      if (
-        Array.isArray(
-          item.countries
-        )
-      ) {
-
-        countries =
-          [
-            ...new Set(
-              item.countries
-                .map(
-                  normalizeCountry
-                )
-            )
-          ];
-
-      } else {
-
-        countries =
-          [country];
-      }
-
-      updates[
-        `${child.key}/country`
-      ] =
-        country;
-
-      updates[
-        `${child.key}/countries`
-      ] =
-        countries;
-
-      updates[
-        `${child.key}/category`
-      ] =
-        normalizeCategory(
-          item.category
-        );
-
-      if (
-        !validURL(
-          item.url
-        )
-      ) {
+        const code =
+          getCountryCode(
+            country
+          );
 
         updates[
-          `${child.key}/active`
-        ] = false;
-      }
-
-      const publishedAt =
-        parseOfficialDate(
-          item.publishedAt
-        );
-
-      if (publishedAt) {
-
-        updates[
-          `${child.key}/publishedDate`
+          `${child.key}/country`
         ] =
-          new Date(
-            publishedAt
-          ).toISOString();
+          country;
+
+        updates[
+          `${child.key}/countryCode`
+        ] =
+          code;
+
+        updates[
+          `${child.key}/category`
+        ] =
+          normalizeCategory(
+            item.category
+          );
+
+        if (
+          !validURL(
+            item.url
+          )
+        ) {
+
+          updates[
+            `${child.key}/active`
+          ] = false;
+        }
+
+        const published =
+          parseOfficialDate(
+            item.publishedAt
+          );
+
+        if (
+          published
+        ) {
+
+          updates[
+            `${child.key}/publishedAt`
+          ] =
+            published;
+
+          updates[
+            `${child.key}/publishedDate`
+          ] =
+            new Date(
+              published
+            ).toISOString();
+        }
       }
-    });
+    );
 
     if (
-      Object.keys(updates)
-        .length
+      Object.keys(
+        updates
+      ).length
     ) {
 
       await db
-        .ref("opportunities")
-        .update(updates);
+        .ref(
+          "opportunities"
+        )
+        .update(
+          updates
+        );
     }
 
     console.log(
-      "✅ Existing data normalized."
+      "🔧 Normalization complete."
     );
 
   } catch (error) {
 
     console.error(
-      "❌ Normalization error:",
+      "❌ Normalize error:",
       error.message
     );
   }
 }
 
 // ============================================================
-// CLEAN OLD DUPLICATE / BAD DATA
+// API: HOME
 // ============================================================
 
-async function cleanupBadData() {
+app.get(
+  "/",
+  (req, res) => {
 
-  console.log(
-    "🧹 Checking bad database records..."
-  );
+    res.json({
 
-  try {
+      status:
+        "online",
 
-    const snap =
-      await db
-        .ref("opportunities")
-        .once("value");
+      name:
+        "MAKYAMA Global Opportunities Bot",
 
-    if (!snap.exists()) {
-      return;
+      version:
+        BOT_VERSION,
+
+      mode:
+        "GLOBAL",
+
+      countries:
+        COUNTRIES.length,
+
+      message:
+        "Bot is running successfully."
+    });
+  }
+);
+
+// ============================================================
+// API: HEALTH
+// ============================================================
+
+app.get(
+  "/health",
+  (req, res) => {
+
+    res.json({
+
+      ok:
+        true,
+
+      service:
+        "MAKYAMA BOT",
+
+      version:
+        BOT_VERSION,
+
+      countries:
+        COUNTRIES.length,
+
+      time:
+        new Date()
+          .toISOString()
+    });
+  }
+);
+
+// ============================================================
+// API: ALL COUNTRIES
+// ============================================================
+
+app.get(
+  "/api/countries",
+  async (req, res) => {
+
+    try {
+
+      const snap =
+        await db
+          .ref(
+            "countries"
+          )
+          .once(
+            "value"
+          );
+
+      const stored =
+        snap.val() ||
+        {};
+
+      const countries =
+        COUNTRIES.map(
+          country => {
+
+            const item =
+              stored[
+                country.code
+              ] || {};
+
+            return {
+
+              code:
+                country.code,
+
+              name:
+                country.name,
+
+              opportunityCount:
+                Number(
+                  item.opportunityCount ||
+                    0
+                ),
+
+              latestPublishedAt:
+                item.latestPublishedAt ||
+                null,
+
+              latestPublishedDate:
+                item.latestPublishedDate ||
+                null,
+
+              status:
+                item.status ||
+                "no_verified_updates_yet"
+            };
+          }
+        );
+
+      res.json({
+
+        ok:
+          true,
+
+        count:
+          countries.length,
+
+        countries
+      });
+
+    } catch (error) {
+
+      console.error(
+        "❌ Countries API:",
+        error.message
+      );
+
+      res.status(
+        500
+      ).json({
+
+        ok:
+          false,
+
+        error:
+          "Failed to load countries"
+      });
     }
+  }
+);
 
-    const updates = {};
+// ============================================================
+// API: COUNTRY DETAILS
+// ============================================================
 
-    snap.forEach(child => {
+app.get(
+  "/api/countries/:code",
+  async (req, res) => {
 
-      const item =
-        child.val();
+    try {
 
-      if (!item) return;
+      const code =
+        String(
+          req.params.code
+        )
+          .trim()
+          .toUpperCase();
 
-      // Missing title
+      const country =
+        COUNTRIES.find(
+          item =>
+            item.code ===
+            code
+        );
 
-      if (
-        !String(
-          item.title || ""
-        ).trim()
-      ) {
+      if (!country) {
 
-        updates[
-          child.key
-        ] = null;
+        return res.status(
+          404
+        ).json({
 
-        return;
+          ok:
+            false,
+
+          error:
+            "Country not found"
+        });
       }
 
-      // Missing URL
+      const [
+        countrySnap,
+        opportunitiesSnap,
+        sourcesSnap
+      ] =
+        await Promise.all([
+          db
+            .ref(
+              `countries/${code}`
+            )
+            .once(
+              "value"
+            ),
+
+          db
+            .ref(
+              "opportunities"
+            )
+            .once(
+              "value"
+            ),
+
+          db
+            .ref(
+              `countrySources/${code}`
+            )
+            .once(
+              "value"
+            )
+        ]);
+
+      const opportunities =
+        [];
+
+      opportunitiesSnap.forEach(
+        child => {
+
+          const item =
+            child.val();
+
+          if (!item) {
+            return;
+          }
+
+          if (
+            item.active === false
+          ) {
+            return;
+          }
+
+          if (
+            item.countryCode ===
+              code ||
+            normalizeCountry(
+              item.country
+            ) ===
+              country.name
+          ) {
+
+            opportunities.push(
+              item
+            );
+          }
+        }
+      );
+
+      opportunities.sort(
+        (a, b) =>
+          Number(
+            b.publishedAt ||
+              0
+          ) -
+          Number(
+            a.publishedAt ||
+              0
+          )
+      );
+
+      const sourceData =
+        sourcesSnap.val() ||
+        {};
+
+      const sources =
+        Object.values(
+          sourceData
+        );
+
+      res.json({
+
+        ok:
+          true,
+
+        country: {
+
+          ...country,
+
+          ...(countrySnap.val() ||
+            {}),
+
+          sources,
+
+          opportunities
+        }
+      });
+
+    } catch (error) {
+
+      console.error(
+        "❌ Country details:",
+        error.message
+      );
+
+      res.status(
+        500
+      ).json({
+
+        ok:
+          false,
+
+        error:
+          "Failed to load country"
+      });
+    }
+  }
+);
+
+// ============================================================
+// API: OPPORTUNITIES
+// ============================================================
+
+app.get(
+  "/api/opportunities",
+  async (req, res) => {
+
+    try {
+
+      const snap =
+        await db
+          .ref(
+            "opportunities"
+          )
+          .once(
+            "value"
+          );
+
+      const data =
+        [];
+
+      const {
+        country,
+        category,
+        source,
+        q,
+        limit
+      } =
+        req.query;
+
+      const max =
+        Math.min(
+          Number(
+            limit || 1000
+          ),
+          5000
+        );
+
+      snap.forEach(
+        child => {
+
+          const item =
+            child.val();
+
+          if (!item) {
+            return;
+          }
+
+          if (
+            item.active === false
+          ) {
+            return;
+          }
+
+          if (
+            !validURL(
+              item.url
+            )
+          ) {
+            return;
+          }
+
+          if (
+            country &&
+            normalizeCountry(
+              item.country
+            ) !==
+              normalizeCountry(
+                country
+              )
+          ) {
+            return;
+          }
+
+          if (
+            category &&
+            String(
+              item.category ||
+                ""
+            ).toLowerCase() !==
+              String(
+                category
+              ).toLowerCase()
+          ) {
+            return;
+          }
+
+          if (
+            source &&
+            String(
+              item.source ||
+                ""
+            ).toLowerCase() !==
+              String(
+                source
+              ).toLowerCase()
+          ) {
+            return;
+          }
+
+          if (q) {
+
+            const text =
+              [
+                item.title,
+                item.description,
+                item.country,
+                item.category,
+                item.source
+              ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
+
+            if (
+              !text.includes(
+                String(
+                  q
+                ).toLowerCase()
+              )
+            ) {
+
+              return;
+            }
+          }
+
+          data.push(
+            item
+          );
+        }
+      );
+
+      data.sort(
+        (a, b) =>
+          Number(
+            b.publishedAt ||
+              0
+          ) -
+          Number(
+            a.publishedAt ||
+              0
+          )
+      );
+
+      res.json({
+
+        ok:
+          true,
+
+        count:
+          data.length,
+
+        opportunities:
+          data.slice(
+            0,
+            max
+          )
+      });
+
+    } catch (error) {
+
+      console.error(
+        "❌ Opportunities API:",
+        error.message
+      );
+
+      res.status(
+        500
+      ).json({
+
+        ok:
+          false,
+
+        error:
+          "Failed to load opportunities"
+      });
+    }
+  }
+);
+
+// ============================================================
+// API: SINGLE OPPORTUNITY
+// ============================================================
+
+app.get(
+  "/api/opportunities/:id",
+  async (req, res) => {
+
+    try {
+
+      const id =
+        req.params.id;
+
+      const snap =
+        await db
+          .ref(
+            `opportunities/${id}`
+          )
+          .once(
+            "value"
+          );
+
+      if (!snap.exists()) {
+
+        return res.status(
+          404
+        ).json({
+
+          ok:
+            false,
+
+          error:
+            "Opportunity not found"
+        });
+      }
+
+      const item =
+        snap.val();
 
       if (
+        !item ||
+        item.active === false ||
         !validURL(
           item.url
         )
       ) {
 
-        updates[
-          child.key
-        ] = null;
+        return res.status(
+          404
+        ).json({
 
-        return;
+          ok:
+            false,
+
+          error:
+            "Opportunity unavailable"
+        });
       }
-
-      // Inactive
-
-      if (
-        item.active === false
-      ) {
-
-        updates[
-          child.key
-        ] = null;
-      }
-    });
-
-    if (
-      Object.keys(updates)
-        .length
-    ) {
 
       await db
-        .ref("opportunities")
-        .update(updates);
+        .ref(
+          `opportunities/${id}/views`
+        )
+        .transaction(
+          value =>
+            Number(
+              value || 0
+            ) + 1
+        );
 
-      console.log(
-        "🧹 Bad records removed:",
-        Object.keys(updates).length
+      item.views =
+        Number(
+          item.views || 0
+        ) + 1;
+
+      res.json({
+
+        ok:
+          true,
+
+        opportunity:
+          item
+      });
+
+    } catch (error) {
+
+      console.error(
+        "❌ Single opportunity:",
+        error.message
       );
+
+      res.status(
+        500
+      ).json({
+
+        ok:
+          false,
+
+        error:
+          "Failed to load opportunity"
+      });
     }
-
-  } catch (error) {
-
-    console.error(
-      "❌ Bad data cleanup error:",
-      error.message
-    );
   }
-}
+);
 
 // ============================================================
-// MAIN BOT
+// API: ADS
 // ============================================================
+
+app.get(
+  "/api/ads",
+  async (req, res) => {
+
+    try {
+
+      const snap =
+        await db
+          .ref(
+            "ads"
+          )
+          .once(
+            "value"
+          );
+
+      const ads =
+        [];
+
+      snap.forEach(
+        child => {
+
+          const ad =
+            child.val();
+
+          if (!ad) {
+            return;
+          }
+
+          if (
+            ad.active === false
+          ) {
+            return;
+          }
+
+          ads.push({
+
+            id:
+              child.key,
+
+            ...ad
+          });
+        }
+      );
+
+      ads.sort(
+        (a, b) =>
+          Number(
+            b.createdAt || 0
+          ) -
+          Number(
+            a.createdAt || 0
+          )
+      );
+
+      res.json({
+
+        ok:
+          true,
+
+        ads
+      });
+
+    } catch (error) {
+
+      console.error(
+        "❌ Ads API:",
+        error.message
+      );
+
+      res.status(
+        500
+      ).json({
+
+        ok:
+          false,
+
+        error:
+          "Failed to load ads"
+      });
+    }
+  }
+);
+
+// ============================================================
+// API: BOT STATUS
+// ============================================================
+
+app.get(
+  "/api/bot-status",
+  async (req, res) => {
+
+    try {
+
+      const snap =
+        await db
+          .ref(
+            "botState"
+          )
+          .once(
+            "value"
+          );
+
+      const state =
+        snap.val() ||
+        {};
+
+      res.json({
+
+        ok:
+          true,
+
+        version:
+          BOT_VERSION,
+
+        countries:
+          COUNTRIES.length,
+
+        countryBatchSize:
+          COUNTRY_BATCH_SIZE,
+
+        countryCursor:
+          Number(
+            state.countryCursor ||
+              0
+          ),
+
+        intervalMinutes:
+          CHECK_INTERVAL /
+          60000,
+
+        lastRun:
+          state.lastRun ||
+          null
+      });
+
+    } catch (error) {
+
+      res.status(
+        500
+      ).json({
+
+        ok:
+          false,
+
+        error:
+          "Failed to load bot status"
+      });
+    }
+  }
+);
+
+// ============================================================
+// RUN BOT
+// ============================================================
+
+let botRunning =
+  false;
 
 async function runBot() {
 
+  if (
+    botRunning
+  ) {
+
+    console.log(
+      "⏭️ Previous bot run still active. Skipping."
+    );
+
+    return;
+  }
+
+  botRunning =
+    true;
+
+  const start =
+    Date.now();
+
   console.log("");
   console.log(
-    "=========================================="
+    "================================================"
   );
-
   console.log(
-    "🤖 MAKYAMA GLOBAL OPPORTUNITIES BOT V8"
+    "🤖 MAKYAMA GLOBAL BOT V10"
   );
-
   console.log(
-    "=========================================="
+    "================================================"
   );
-
   console.log(
     "Time:",
-    new Date().toISOString()
+    new Date()
+      .toISOString()
   );
-
   console.log(
-    "Mode: GLOBAL"
+    "Countries:",
+    COUNTRIES.length
   );
-
   console.log(
-    "Language: English"
+    "Country batch:",
+    COUNTRY_BATCH_SIZE
   );
-
   console.log(
     "Grants.gov: POSTED ONLY"
   );
+  console.log(
+    "Fake publication dates: DISABLED"
+  );
+  console.log(
+    "================================================"
+  );
 
-  console.log("");
+  try {
 
-  // ----------------------------------------------------------
-  // CLEAN DATABASE FIRST
-  // ----------------------------------------------------------
+    await db
+      .ref(
+        "botState/lastRun"
+      )
+      .set(
+        new Date()
+          .toISOString()
+      );
 
-  await removeExpired();
+    // --------------------------------------------------------
+    // COUNTRY CATALOG
+    // --------------------------------------------------------
 
-  await removeInvalidURLs();
+    await initializeCountries();
 
-  await cleanupSuspiciousOldGrants();
+    // --------------------------------------------------------
+    // OFFICIAL SOURCE DIRECTORY
+    // --------------------------------------------------------
 
-  await cleanupBadData();
+    await saveOfficialSources();
 
-  // ----------------------------------------------------------
-  // FETCH SOURCES
-  // ----------------------------------------------------------
+    // --------------------------------------------------------
+    // CLEAN OLD DATA
+    // --------------------------------------------------------
 
-  let totalNew = 0;
+    await removeExpired();
 
-  totalNew +=
-    await checkRemotive();
+    await removeInvalidURLs();
 
-  totalNew +=
+    await cleanupOldNews();
+
+    // --------------------------------------------------------
+    // GLOBAL SOURCES
+    // --------------------------------------------------------
+
     await checkGrantsGov();
 
-  totalNew +=
-    await checkInternationalSources();
+    await checkRemotive();
 
-  totalNew +=
-    await checkHESLB();
+    // --------------------------------------------------------
+    // COUNTRY NEWS / OPPORTUNITIES
+    // --------------------------------------------------------
 
-  totalNew +=
-    await checkAjira();
+    await checkCountryBatch();
 
-  totalNew +=
-    await checkGlobalEvents();
+    // --------------------------------------------------------
+    // NORMALIZE
+    // --------------------------------------------------------
 
-  // ----------------------------------------------------------
-  // NORMALIZE
-  // ----------------------------------------------------------
+    await normalizeExistingData();
 
-  await normalizeExistingData();
+    // --------------------------------------------------------
+    // COUNTRY STATS
+    // --------------------------------------------------------
 
-  // ----------------------------------------------------------
-  // FINAL CLEAN
-  // ----------------------------------------------------------
+    await updateCountryStatistics();
 
-  await removeExpired();
+    // --------------------------------------------------------
+    // FINAL CLEAN
+    // --------------------------------------------------------
 
-  await removeInvalidURLs();
+    await removeExpired();
 
-  console.log("");
+    console.log("");
+    console.log(
+      "================================================"
+    );
+    console.log(
+      "🎉 BOT FINISHED"
+    );
+    console.log(
+      "Runtime:",
+      Math.round(
+        (
+          Date.now() -
+          start
+        ) /
+        1000
+      ),
+      "seconds"
+    );
+    console.log(
+      "================================================"
+    );
 
-  console.log(
-    "=========================================="
-  );
-
-  console.log(
-    "🎉 BOT FINISHED SUCCESSFULLY"
-  );
-
-  console.log(
-    "New items:",
-    totalNew
-  );
-
-  console.log(
-    "Finished:",
-    new Date().toISOString()
-  );
-
-  console.log(
-    "=========================================="
-  );
-
-  console.log("");
-}
-
-// ============================================================
-// START
-// ============================================================
-
-runBot()
-  .catch(error => {
+  } catch (error) {
 
     console.error(
       "❌ BOT CRITICAL ERROR:",
       error
     );
-  });
+
+  } finally {
+
+    botRunning =
+      false;
+  }
+}
 
 // ============================================================
-// AUTO RUN EVERY 30 MINUTES
+// SERVER
+// ============================================================
+
+app.listen(
+  PORT,
+  () => {
+
+    console.log("");
+    console.log(
+      "=============================================="
+    );
+    console.log(
+      "🚀 MAKYAMA GLOBAL OPPORTUNITIES BOT V10"
+    );
+    console.log(
+      "=============================================="
+    );
+    console.log(
+      "Port:",
+      PORT
+    );
+    console.log(
+      "Countries:",
+      COUNTRIES.length
+    );
+    console.log(
+      "Interval:",
+      CHECK_INTERVAL /
+        60000,
+      "minutes"
+    );
+    console.log(
+      "Mode: GLOBAL"
+    );
+    console.log(
+      "Publication dates: SOURCE DATES ONLY"
+    );
+    console.log(
+      "=============================================="
+    );
+    console.log("");
+  }
+);
+
+// ============================================================
+// START FIRST RUN
+// ============================================================
+
+runBot()
+  .catch(
+    error =>
+      console.error(
+        "❌ Startup bot error:",
+        error
+      )
+  );
+
+// ============================================================
+// AUTO RUN
 // ============================================================
 
 setInterval(
   () => {
 
     runBot()
-      .catch(error => {
-
-        console.error(
-          "❌ Scheduled bot error:",
-          error
-        );
-      });
+      .catch(
+        error =>
+          console.error(
+            "❌ Scheduled bot error:",
+            error
+          )
+      );
 
   },
   CHECK_INTERVAL
@@ -2923,24 +5084,28 @@ setInterval(
 
 process.on(
   "SIGTERM",
-  async () => {
+  () => {
 
     console.log(
       "🛑 SIGTERM received."
     );
 
-    process.exit(0);
+    process.exit(
+      0
+    );
   }
 );
 
 process.on(
   "SIGINT",
-  async () => {
+  () => {
 
     console.log(
       "🛑 SIGINT received."
     );
 
-    process.exit(0);
+    process.exit(
+      0
+    );
   }
 );
