@@ -1,16 +1,17 @@
 {
-  "name": "makyama-global-opportunities",
-  "version": "8.0.0",
-  "description": "MAKYAMA Global Opportunities Platform",
-  "main": "bot.js",
-  "scripts": {
-    "start": "node bot.js"
-  },
-  "engines": {
-    "node": ">=18"
-  },
-  "dependencies": {
-    "express": "^4.21.2",
-    "firebase-admin": "^13.0.2"
-  }
+"name": "makyama-global-opportunities-bot",
+"version": "9.0.0",
+"description": "MAKYAMA Global Opportunities Bot - Jobs, Scholarships, Grants, Internships, Events and Global Opportunities",
+"main": "bot.js",
+"scripts": {
+"start": "node bot.js",
+"dev": "node bot.js"
+},
+"engines": {
+"node": "22.x"
+},
+"dependencies": {
+"express": "^5.1.0",
+"firebase-admin": "^14.3.0"
+}
 }
